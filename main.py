@@ -29,7 +29,7 @@ EXCEL_FILE_TYPES = [
 ELEMENT_SYMBOLS = ('Cd', 'Pb', 'Hg', 'Br', 'Cr')
 ELEMENT_KEYS = {symbol: symbol.upper() for symbol in ELEMENT_SYMBOLS}
 HEADER_SCAN_LIMIT = 40
-APP_VERSION = '1.1.0'
+APP_VERSION = '1.1.1'
 OPTIMIZE_COMPRESSLEVEL = 4
 GITHUB_REPO_OWNER = 'WooDoGwon'
 GITHUB_REPO_NAME = 'Program'
@@ -44,6 +44,7 @@ TOP_BAR_LOGO_MAX_WIDTH = 170
 ABOUT_LOGO_HEIGHT = 58
 ABOUT_LOGO_MAX_WIDTH = 210
 VERSION_HISTORY = [
+    ('1.1.1', '\uc790\ub3d9 \uc5c5\ub370\uc774\ud2b8 \ubc30\ud3ec\uc6a9 \ubc84\uc804 \uac31\uc2e0', '2026-04-22'),
     ('1.1.0', '\ubc84\uc804 \ud45c\uae30 1.1.0 \uc801\uc6a9', '2026-04-22'),
     ('1.0.10', '\u0047\u0069\u0074\u0048\u0075\u0062 \uc790\ub3d9 \uc5c5\ub370\uc774\ud2b8 \uae30\ub2a5 \ucd94\uac00', '2026-04-22'),
     ('1.0.9', '버전 업데이트 / 노트북 화면 자동 맞춤 개선', '2026-04-21'),
@@ -80,6 +81,27 @@ RESOLUTION_PRESETS = (
     ('WSXGA+ (1680 x 1050)', (1680, 1050)),
     ('FHD (1920 x 1080)', (1920, 1080)),
 )
+
+
+THEME_COLORS = {
+    'app_bg': '#edf2f7',
+    'top_bg': '#edf2f7',
+    'surface': '#ffffff',
+    'surface_alt': '#f8fafc',
+    'panel_border': '#cbd5e1',
+    'muted_border': '#d9e2ec',
+    'heading': '#172033',
+    'body_text': '#334155',
+    'muted_text': '#64748b',
+    'accent': '#0a72c4',
+    'accent_hover': '#095ea3',
+    'accent_soft': '#eaf4ff',
+    'danger': '#d11f1f',
+    'list_bg': '#f7fafc',
+    'list_row_alt': '#f1f5f9',
+    'button_bg': '#f8fafc',
+    'button_hover': '#eef4fa',
+}
 
 DISPLAY_SETTINGS_DIR_NAME = 'XRF_Report_Auto_Input_System'
 DISPLAY_SETTINGS_FILE_NAME = 'display_settings.json'
@@ -1722,7 +1744,8 @@ def insert_sheets_into_target_workbook(source_paths, target_path, sheet_names_to
 
 
 class SelectableList(tk.Frame):
-    def __init__(self, master, width=320, height=420, bg='#cccccc'):
+    def __init__(self, master, width=320, height=420, bg=None):
+        bg = bg or THEME_COLORS['list_bg']
         super().__init__(master, bg=bg, bd=0, highlightthickness=0)
         self._bg = bg
         self._items = []
@@ -1823,14 +1846,15 @@ class SelectableList(tk.Frame):
 
     def _rebuild_rows(self):
         for index, item in enumerate(self._items):
-            row = tk.Frame(self.inner, bg=self._bg, padx=8, pady=4)
+            row_bg = THEME_COLORS['surface'] if index % 2 == 0 else THEME_COLORS['surface_alt']
+            row = tk.Frame(self.inner, bg=row_bg, padx=10, pady=5)
             row.pack(fill='x', anchor='w')
 
             check_label = tk.Label(
                 row,
                 text='☑' if item['selected'] else '☐',
-                fg='#d11f1f' if item['selected'] else '#222222',
-                bg=self._bg,
+                fg=THEME_COLORS['danger'] if item['selected'] else THEME_COLORS['muted_text'],
+                bg=row_bg,
                 font=('\ub9d1\uc740 \uace0\ub515', self._check_font_size, 'bold'),
                 width=2,
                 anchor='w',
@@ -1838,8 +1862,8 @@ class SelectableList(tk.Frame):
             text_label = tk.Label(
                 row,
                 text=item['label'],
-                fg='#d11f1f' if item['selected'] else '#ffffff',
-                bg=self._bg,
+                fg=THEME_COLORS['danger'] if item['selected'] else THEME_COLORS['body_text'],
+                bg=row_bg,
                 font=('\ub9d1\uc740 \uace0\ub515', self._text_font_size, 'bold'),
                 anchor='w',
                 justify='left',
@@ -1863,7 +1887,7 @@ class SelectableList(tk.Frame):
         text_label = row.winfo_children()[1]
         selected = self._items[index]['selected']
         check_label.configure(text='☑' if selected else '☐', fg='#d11f1f' if selected else '#222222')
-        text_label.configure(fg='#d11f1f' if selected else '#ffffff')
+        text_label.configure(fg=THEME_COLORS['danger'] if selected else THEME_COLORS['body_text'])
 
     def get_selected_values(self):
         return [item['value'] for item in self._items if item['selected']]
@@ -1878,7 +1902,7 @@ class SelectableList(tk.Frame):
                 text_label = row.winfo_children()[1]
                 selected = item['selected']
                 check_label.configure(text='☑' if selected else '☐', fg='#d11f1f' if selected else '#222222')
-                text_label.configure(fg='#d11f1f' if selected else '#ffffff')
+                text_label.configure(fg=THEME_COLORS['danger'] if selected else THEME_COLORS['body_text'])
 
     def select_all(self):
         self.set_selected_values([item['value'] for item in self._items])
@@ -1916,7 +1940,7 @@ class SelectableList(tk.Frame):
 
 
 class ScrollableInfoBox(tk.Frame):
-    def __init__(self, master, width=760, height=120, bg='white', fg='#303030', initial_text=''):
+    def __init__(self, master, width=760, height=120, bg=THEME_COLORS['surface'], fg=THEME_COLORS['body_text'], initial_text=''):
         super().__init__(master, bg=bg, relief='solid', bd=1)
         self._font_size = 11
         self.text = tk.Text(
@@ -1994,7 +2018,7 @@ class XRFReportApp:
         self.root.title('XRF Report Auto Input System')
         self.root.geometry(f'{DEFAULT_WINDOW_SIZE[0]}x{DEFAULT_WINDOW_SIZE[1]}')
         self.root.minsize(*MIN_WINDOW_SIZE)
-        self.root.configure(bg='#b4b4b4')
+        self.root.configure(bg=THEME_COLORS['app_bg'])
 
         self.source_paths = []
         self.target_workbook_paths = []
@@ -2595,7 +2619,7 @@ class XRFReportApp:
 
         card = tk.Frame(
             outer,
-            bg='white',
+            bg=THEME_COLORS['surface'],
             bd=0,
             highlightbackground='#d4dae2',
             highlightthickness=1,
@@ -2607,15 +2631,15 @@ class XRFReportApp:
         tk.Label(
             card,
             text='이전 버전 업데이트 이력',
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 15, 'bold'),
         ).pack(anchor='w')
 
         tk.Label(
             card,
             text='현재 버전을 제외한 이전 버전의 주요 변경 내용을 확인할 수 있습니다.',
-            bg='white',
+            bg=THEME_COLORS['surface'],
             fg='#5f6b7a',
             font=('Malgun Gothic', 9),
         ).pack(anchor='w', pady=(4, 10))
@@ -2635,7 +2659,7 @@ class XRFReportApp:
             table_shell = tk.Frame(card, bg='#d4dae2', padx=1, pady=1)
             table_shell.pack(fill='both', expand=True)
 
-            table_frame = tk.Frame(table_shell, bg='white')
+            table_frame = tk.Frame(table_shell, bg=THEME_COLORS['surface'])
             table_frame.pack(fill='both', expand=True)
 
             column_specs = (
@@ -2653,7 +2677,7 @@ class XRFReportApp:
                     header_frame,
                     text=title,
                     bg='#eef3f8',
-                    fg='#202020',
+                    fg=THEME_COLORS['body_text'],
                     font=('Malgun Gothic', 10, 'bold'),
                     padx=6,
                     pady=8,
@@ -2663,19 +2687,19 @@ class XRFReportApp:
 
             tk.Frame(table_frame, bg='#dfe5ec', height=1).pack(fill='x')
 
-            body_frame = tk.Frame(table_frame, bg='white')
+            body_frame = tk.Frame(table_frame, bg=THEME_COLORS['surface'])
             body_frame.pack(fill='both', expand=True)
 
             canvas = tk.Canvas(
                 body_frame,
-                bg='white',
+                bg=THEME_COLORS['surface'],
                 width=440,
                 height=180,
                 highlightthickness=0,
                 bd=0,
             )
             scrollbar = tk.Scrollbar(body_frame, orient='vertical', command=canvas.yview)
-            rows_frame = tk.Frame(canvas, bg='white')
+            rows_frame = tk.Frame(canvas, bg=THEME_COLORS['surface'])
             window_id = canvas.create_window((0, 0), window=rows_frame, anchor='nw')
             canvas.configure(yscrollcommand=scrollbar.set)
             canvas.pack(side='left', fill='both', expand=True)
@@ -2704,7 +2728,7 @@ class XRFReportApp:
                         rows_frame,
                         text=row_values[column_index],
                         bg=row_bg,
-                        fg='#202020',
+                        fg=THEME_COLORS['body_text'],
                         font=('Malgun Gothic', 10),
                         padx=8,
                         pady=8,
@@ -2722,7 +2746,7 @@ class XRFReportApp:
                         sticky='ew',
                     )
 
-        button_frame = tk.Frame(card, bg='white', pady=(12, 0))
+        button_frame = tk.Frame(card, bg=THEME_COLORS['surface'], pady=(12, 0))
         button_frame.pack(fill='x')
 
         tk.Button(
@@ -2730,12 +2754,14 @@ class XRFReportApp:
             text='닫기',
             width=10,
             command=close_version_history_window,
-            bg='#f3f4f6',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 10, 'bold'),
-            relief='solid',
-            bd=1,
-            activebackground='#e7ebf0',
+            relief='flat',
+            bd=0,
+            highlightbackground=THEME_COLORS['panel_border'],
+            highlightthickness=1,
+            activebackground=THEME_COLORS['button_hover'],
             activeforeground='#202020',
         ).pack(side='right')
 
@@ -2780,28 +2806,28 @@ class XRFReportApp:
 
         card = tk.Frame(
             outer,
-            bg='white',
+            bg=THEME_COLORS['surface'],
             bd=0,
             highlightbackground='#d4dae2',
             highlightthickness=1,
         )
         card.pack(fill='both', expand=True)
 
-        top_section = tk.Frame(card, bg='white', padx=16, pady=14)
+        top_section = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=14)
         top_section.pack(fill='x')
 
         tk.Label(
             top_section,
             text='버전 정보',
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 18, 'bold'),
         ).pack(anchor='w')
 
         tk.Label(
             top_section,
             text='현재 버전, 프로그램 정보, 업데이트 이력을 한 번에 확인할 수 있습니다.',
-            bg='white',
+            bg=THEME_COLORS['surface'],
             fg='#5f6b7a',
             font=('Malgun Gothic', 10),
         ).pack(anchor='w', pady=(4, 0))
@@ -2809,27 +2835,27 @@ class XRFReportApp:
         summary_shell = tk.Frame(card, bg='#d4dae2', padx=1, pady=1)
         summary_shell.pack(fill='x', padx=16, pady=(12, 0))
 
-        summary_frame = tk.Frame(summary_shell, bg='white', padx=16, pady=14)
+        summary_frame = tk.Frame(summary_shell, bg=THEME_COLORS['surface'], padx=16, pady=14)
         summary_frame.pack(fill='x')
 
-        version_header = tk.Frame(summary_frame, bg='white')
+        version_header = tk.Frame(summary_frame, bg=THEME_COLORS['surface'])
         version_header.pack(fill='x')
 
-        version_text_frame = tk.Frame(version_header, bg='white')
+        version_text_frame = tk.Frame(version_header, bg=THEME_COLORS['surface'])
         version_text_frame.pack(side='left', fill='x', expand=True)
 
         tk.Label(
             version_text_frame,
             text='현재 버전',
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 11, 'bold'),
         ).pack(anchor='w')
 
         tk.Label(
             version_text_frame,
             text='설치된 프로그램의 최신 버전 정보입니다.',
-            bg='white',
+            bg=THEME_COLORS['surface'],
             fg='#5f6b7a',
             font=('Malgun Gothic', 9),
         ).pack(anchor='w', pady=(2, 0))
@@ -2837,8 +2863,8 @@ class XRFReportApp:
         tk.Label(
             version_text_frame,
             text='우측 버전을 누르면 이전 버전 이력을 볼 수 있습니다.',
-            bg='white',
-            fg='#0a72c4',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['accent'],
             font=('Malgun Gothic', 9, 'bold'),
         ).pack(anchor='w', pady=(8, 0))
 
@@ -2847,19 +2873,19 @@ class XRFReportApp:
             text=f'Ver {APP_VERSION}',
             command=self.show_previous_version_history,
             cursor='hand2',
-            bg='#0a72c4',
-            fg='white',
+            bg=THEME_COLORS['accent'],
+            fg=THEME_COLORS['heading'],
             font=('Malgun Gothic', 12, 'bold'),
             padx=14,
             pady=8,
             relief='flat',
             bd=0,
             highlightthickness=0,
-            activebackground='#095ea3',
+            activebackground=THEME_COLORS['accent_hover'],
             activeforeground='white',
         ).pack(side='right', anchor='ne')
 
-        info_grid = tk.Frame(summary_frame, bg='white')
+        info_grid = tk.Frame(summary_frame, bg=THEME_COLORS['surface'])
         info_grid.pack(fill='x', pady=(16, 0))
         info_grid.grid_columnconfigure(1, weight=1)
 
@@ -2875,16 +2901,16 @@ class XRFReportApp:
             tk.Label(
                 info_grid,
                 text=f'{label_text} :',
-                bg='white',
-                fg='#202020',
+                bg=THEME_COLORS['surface'],
+                fg=THEME_COLORS['body_text'],
                 font=('Malgun Gothic', 10, 'bold'),
                 anchor='w',
             ).grid(row=row_index, column=0, sticky='w', pady=(0, bottom_pad))
             tk.Label(
                 info_grid,
                 text=value_text,
-                bg='white',
-                fg='#202020',
+                bg=THEME_COLORS['surface'],
+                fg=THEME_COLORS['body_text'],
                 font=('Malgun Gothic', 10),
                 anchor='w',
             ).grid(row=row_index, column=1, sticky='w', padx=(8, 0), pady=(0, bottom_pad))
@@ -2892,7 +2918,7 @@ class XRFReportApp:
         tk.Label(
             summary_frame,
             text='이 프로그램은 풍원공업(주) 전용 프로그램이며 당사 직원 외 무단배포, 무단사용 등을 금합니다.',
-            bg='white',
+            bg=THEME_COLORS['surface'],
             fg='#344150',
             font=('Malgun Gothic', 10),
             justify='left',
@@ -2904,28 +2930,28 @@ class XRFReportApp:
             tk.Label(
                 summary_frame,
                 image=self.about_logo_image,
-                bg='white',
+                bg=THEME_COLORS['surface'],
                 bd=0,
                 highlightthickness=0,
             ).pack(anchor='center', pady=(14, 0))
 
         tk.Frame(card, bg='#e6e9ef', height=1).pack(fill='x', padx=16, pady=(14, 0))
 
-        section_frame = tk.Frame(card, bg='white', padx=16, pady=(12, 8))
+        section_frame = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=(12, 8))
         section_frame.pack(fill='x')
 
         tk.Label(
             section_frame,
             text='버전 업데이트 이력',
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 13, 'bold'),
         ).pack(anchor='w')
 
         tk.Label(
             section_frame,
             text='최근 버전부터 순서대로 주요 변경 내용을 볼 수 있습니다.',
-            bg='white',
+            bg=THEME_COLORS['surface'],
             fg='#5f6b7a',
             font=('Malgun Gothic', 9),
         ).pack(anchor='w', pady=(3, 0))
@@ -2933,7 +2959,7 @@ class XRFReportApp:
         table_shell = tk.Frame(card, bg='#d4dae2', padx=1, pady=1)
         table_shell.pack(fill='both', expand=True, padx=16, pady=(0, 10))
 
-        table_frame = tk.Frame(table_shell, bg='white')
+        table_frame = tk.Frame(table_shell, bg=THEME_COLORS['surface'])
         table_frame.pack(fill='both', expand=True)
 
         column_specs = (
@@ -2951,7 +2977,7 @@ class XRFReportApp:
                 header_frame,
                 text=title,
                 bg='#eef3f8',
-                fg='#202020',
+                fg=THEME_COLORS['body_text'],
                 font=('Malgun Gothic', 10, 'bold'),
                 padx=6,
                 pady=8,
@@ -2961,19 +2987,19 @@ class XRFReportApp:
 
         tk.Frame(table_frame, bg='#dfe5ec', height=1).pack(fill='x')
 
-        body_frame = tk.Frame(table_frame, bg='white')
+        body_frame = tk.Frame(table_frame, bg=THEME_COLORS['surface'])
         body_frame.pack(fill='both', expand=True)
 
         canvas = tk.Canvas(
             body_frame,
-            bg='white',
+            bg=THEME_COLORS['surface'],
             width=440,
             height=170,
             highlightthickness=0,
             bd=0,
         )
         scrollbar = tk.Scrollbar(body_frame, orient='vertical', command=canvas.yview)
-        rows_frame = tk.Frame(canvas, bg='white')
+        rows_frame = tk.Frame(canvas, bg=THEME_COLORS['surface'])
         window_id = canvas.create_window((0, 0), window=rows_frame, anchor='nw')
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side='left', fill='both', expand=True)
@@ -3007,7 +3033,7 @@ class XRFReportApp:
                     rows_frame,
                     text=text,
                     bg=row_bg,
-                    fg='#202020',
+                    fg=THEME_COLORS['body_text'],
                     font=('Malgun Gothic', 10, 'bold' if row_index == 0 and row_values[0] else 'normal'),
                     padx=8,
                     pady=8,
@@ -3026,7 +3052,7 @@ class XRFReportApp:
                     sticky='ew',
                 )
 
-        button_frame = tk.Frame(card, bg='white', padx=16, pady=(0, 14))
+        button_frame = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=(0, 14))
         button_frame.pack(fill='x')
 
         tk.Button(
@@ -3034,12 +3060,12 @@ class XRFReportApp:
             text='닫기',
             width=10,
             command=close_about_window,
-            bg='#f3f4f6',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 10, 'bold'),
             relief='solid',
             bd=1,
-            activebackground='#e7ebf0',
+            activebackground=THEME_COLORS['button_hover'],
             activeforeground='#202020',
         ).pack(side='right')
 
@@ -3063,15 +3089,17 @@ class XRFReportApp:
             messagebox.showerror('열기 실패', f'프로그램 폴더를 열지 못했습니다.\n{exc}')
 
     def _build_ui(self):
-        top_bar = tk.Frame(self.root, bg='#b4b4b4')
+        top_bar = tk.Frame(self.root, bg=THEME_COLORS['top_bg'])
         top_bar.pack(fill='x', padx=18, pady=(10, 0))
 
         version_label = tk.Label(
             top_bar,
             text=f'Ver {APP_VERSION}',
-            bg='#b4b4b4',
+            bg=THEME_COLORS['accent'],
             fg='white',
             font=('Malgun Gothic', 11, 'bold'),
+            padx=12,
+            pady=5,
         )
         version_label.pack(side='left', anchor='w')
 
@@ -3080,7 +3108,7 @@ class XRFReportApp:
             tk.Label(
                 top_bar,
                 image=self.top_logo_image,
-                bg='#b4b4b4',
+                bg=THEME_COLORS['top_bg'],
                 bd=0,
                 highlightthickness=0,
             ).pack(side='left', anchor='w', padx=(14, 0))
@@ -3088,121 +3116,135 @@ class XRFReportApp:
         self.title_label = tk.Label(
             self.root,
             text='XRF Report Auto Input System',
-            bg='white',
-            fg='#303030',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['heading'],
             font=('\ub9d1\uc740 \uace0\ub515', 22, 'bold'),
             relief='solid',
             bd=1,
+            highlightbackground=THEME_COLORS['panel_border'],
+            highlightthickness=1,
             padx=24,
             pady=10,
         )
         self.title_label.pack(pady=(14, 12))
 
-        body = tk.Frame(self.root, bg='#b4b4b4')
+        body = tk.Frame(self.root, bg=THEME_COLORS['app_bg'])
         body.pack(fill='both', expand=True, padx=18, pady=(0, 18))
 
-        left_panel = tk.Frame(body, bg='#b4b4b4')
+        left_panel = tk.Frame(body, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, padx=14, pady=14)
         left_panel.pack(side='left', fill='y', padx=(0, 18))
 
         tk.Label(
             left_panel,
             text='[재질 목록]',
-            bg='#b4b4b4',
-            fg='white',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['heading'],
             font=('맑은 고딕', 18, 'bold'),
         ).pack(anchor='w', pady=(0, 8))
 
-        self.source_list = SelectableList(left_panel, width=360, height=560, bg='#c3c3c3')
+        self.source_list = SelectableList(left_panel, width=360, height=560, bg=THEME_COLORS['list_bg'])
         self.source_list.pack(fill='both', expand=True)
 
-        source_select_row = tk.Frame(left_panel, bg='#b4b4b4')
+        source_select_row = tk.Frame(left_panel, bg=THEME_COLORS['surface'])
         source_select_row.pack(fill='x', pady=(10, 0))
 
         tk.Button(
             source_select_row,
             text='전체선택',
             command=self.source_list.select_all,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('맑은 고딕', 11, 'bold'),
             relief='solid',
             bd=1,
             padx=12,
             pady=8,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True)
 
         tk.Button(
             source_select_row,
             text='전체해제',
             command=self.source_list.clear_selection,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('맑은 고딕', 11, 'bold'),
             relief='solid',
             bd=1,
             padx=12,
             pady=8,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True, padx=(10, 0))
 
-        left_buttons = tk.Frame(left_panel, bg='#b4b4b4')
+        left_buttons = tk.Frame(left_panel, bg=THEME_COLORS['surface'])
         left_buttons.pack(fill='x', pady=(14, 0))
 
         tk.Button(
             left_buttons,
             text='재질파일불러오기',
             command=self.load_source_files,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('맑은 고딕', 13, 'bold'),
             relief='solid',
             bd=1,
             padx=18,
             pady=12,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True)
 
         tk.Button(
             left_buttons,
             text='목록 지우기',
             command=self.clear_source_files,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('맑은 고딕', 13, 'bold'),
             relief='solid',
             bd=1,
             padx=18,
             pady=12,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True, padx=(10, 0))
 
-        right_panel = tk.Frame(body, bg='#b4b4b4')
+        right_panel = tk.Frame(body, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, padx=14, pady=14)
         right_panel.pack(side='left', fill='both', expand=True)
 
-        control_panel = tk.Frame(right_panel, bg='#b4b4b4')
+        control_panel = tk.Frame(right_panel, bg=THEME_COLORS['surface'])
         control_panel.pack(fill='x')
 
         tk.Button(
             control_panel,
             text='기존 저장 파일 불러오기',
             command=self.load_target_workbook,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['accent_soft'],
+            fg=THEME_COLORS['heading'],
             font=('맑은 고딕', 13, 'bold'),
             relief='solid',
             bd=1,
             padx=16,
             pady=10,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['heading'],
         ).grid(row=0, column=0, sticky='ew', padx=(0, 10), pady=(0, 10))
 
         tk.Button(
             control_panel,
             text='업체 TOTAL 불러오기',
             command=self.load_total_workbook,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['accent_soft'],
+            fg=THEME_COLORS['heading'],
             font=('맑은 고딕', 13, 'bold'),
             relief='solid',
             bd=1,
             padx=16,
             pady=10,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['heading'],
         ).grid(row=0, column=1, sticky='ew', pady=(0, 10))
 
         control_panel.grid_columnconfigure(0, weight=1)
@@ -3219,8 +3261,8 @@ class XRFReportApp:
         self.total_info_label = tk.Label(
             control_panel,
             textvariable=self.total_info_var,
-            bg='white',
-            fg='#303030',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
             font=('\ub9d1\uc740 \uace0\ub515', 11, 'bold'),
             relief='solid',
             bd=1,
@@ -3232,106 +3274,114 @@ class XRFReportApp:
         )
         self.total_info_label.grid(row=2, column=0, columnspan=2, sticky='ew')
 
-        self.middle_panel = tk.Frame(right_panel, bg='#b4b4b4')
+        self.middle_panel = tk.Frame(right_panel, bg=THEME_COLORS['surface'])
         self.middle_panel.pack(fill='both', expand=True, pady=(16, 16))
 
-        self.delete_panel = tk.Frame(self.middle_panel, bg='#b4b4b4')
+        self.delete_panel = tk.Frame(self.middle_panel, bg=THEME_COLORS['surface'])
         self.delete_panel.pack(side='left', fill='both', expand=True, padx=(0, 14))
 
         self.delete_header_label = tk.Label(
             self.delete_panel,
             text='[\uc0ad\uc81c\ud560 \uc2dc\ud2b8] \uae30\uc874 \uc800\uc7a5 \ud30c\uc77c\uc5d0\uc11c \uc0ad\uc81c \ud6c4 \uc0c8 \uc2dc\ud2b8\ub97c \uc0bd\uc785\ud569\ub2c8\ub2e4.',
-            bg='#b4b4b4',
-            fg='white',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['heading'],
             font=('\ub9d1\uc740 \uace0\ub515', 14, 'bold'),
             justify='left',
         )
         self.delete_header_label.pack(anchor='w', pady=(0, 8))
 
-        self.target_sheet_list = SelectableList(self.delete_panel, width=420, height=320, bg='#c3c3c3')
+        self.target_sheet_list = SelectableList(self.delete_panel, width=420, height=320, bg=THEME_COLORS['list_bg'])
         self.target_sheet_list.pack(fill='both', expand=True)
 
-        target_select_row = tk.Frame(self.delete_panel, bg='#b4b4b4')
+        target_select_row = tk.Frame(self.delete_panel, bg=THEME_COLORS['surface'])
         target_select_row.pack(fill='x', pady=(10, 0))
 
         tk.Button(
             target_select_row,
             text='전체선택',
             command=self.target_sheet_list.select_all,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('맑은 고딕', 11, 'bold'),
             relief='solid',
             bd=1,
             padx=12,
             pady=8,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True)
 
         tk.Button(
             target_select_row,
             text='전체해제',
             command=self.target_sheet_list.clear_selection,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['button_bg'],
+            fg=THEME_COLORS['body_text'],
             font=('맑은 고딕', 11, 'bold'),
             relief='solid',
             bd=1,
             padx=12,
             pady=8,
+            activebackground=THEME_COLORS['button_hover'],
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True, padx=(10, 0))
 
-        option_row = tk.Frame(self.delete_panel, bg='#b4b4b4')
+        option_row = tk.Frame(self.delete_panel, bg=THEME_COLORS['surface'])
         option_row.pack(fill='x', pady=(12, 0))
 
         tk.Checkbutton(
             option_row,
             text='파일 최적화 사용 (xlsx/xlsm)',
             variable=self.optimize_var,
-            bg='#b4b4b4',
-            fg='white',
-            activebackground='#b4b4b4',
-            activeforeground='white',
-            selectcolor='#b4b4b4',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
+            activebackground=THEME_COLORS['surface'],
+            activeforeground=THEME_COLORS['body_text'],
+            selectcolor=THEME_COLORS['surface'],
             font=('맑은 고딕', 12, 'bold'),
         ).pack(side='left', anchor='w')
 
-        action_row = tk.Frame(self.delete_panel, bg='#b4b4b4')
+        action_row = tk.Frame(self.delete_panel, bg=THEME_COLORS['surface'])
         action_row.pack(fill='x', pady=(12, 0))
 
         tk.Button(
             action_row,
             text='시트 삽입 실행',
             command=self.run_insert,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['accent'],
+            fg='white',
             font=('맑은 고딕', 14, 'bold'),
-            relief='solid',
-            bd=1,
+            relief='flat',
+            bd=0,
             padx=18,
             pady=14,
+            activebackground=THEME_COLORS['accent_hover'],
+            activeforeground='white',
         ).pack(side='left', fill='x', expand=True)
 
         tk.Button(
             action_row,
             text='유해물질표 업데이트',
             command=self.run_update_hazardous_table,
-            bg='white',
-            fg='#202020',
+            bg=THEME_COLORS['accent'],
+            fg='white',
             font=('맑은 고딕', 14, 'bold'),
-            relief='solid',
-            bd=1,
+            relief='flat',
+            bd=0,
             padx=18,
             pady=14,
+            activebackground=THEME_COLORS['accent_hover'],
+            activeforeground='white',
         ).pack(side='left', fill='x', expand=True, padx=(10, 0))
 
-        self.result_panel = tk.Frame(self.middle_panel, bg='white', relief='solid', bd=1)
+        self.result_panel = tk.Frame(self.middle_panel, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, bd=0)
         self.result_panel.pack(side='left', fill='both', expand=True)
 
         self.result_label = tk.Label(
             self.result_panel,
             textvariable=self.result_var,
-            bg='white',
-            fg='#0a72c4',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['accent'],
             font=('\ub9d1\uc740 \uace0\ub515', 72, 'bold'),
             pady=40,
         )
@@ -3340,8 +3390,8 @@ class XRFReportApp:
         self.status_label = tk.Label(
             self.result_panel,
             textvariable=self.status_var,
-            bg='white',
-            fg='#404040',
+            bg=THEME_COLORS['surface'],
+            fg=THEME_COLORS['body_text'],
             font=('\ub9d1\uc740 \uace0\ub515', 13, 'bold'),
             justify='left',
             wraplength=360,
