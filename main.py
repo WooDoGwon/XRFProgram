@@ -7,6 +7,8 @@ import tempfile
 import threading
 import unicodedata
 import zipfile
+import urllib.error
+import urllib.request
 import ctypes
 import ctypes.wintypes
 from collections import Counter, defaultdict
@@ -27,14 +29,22 @@ EXCEL_FILE_TYPES = [
 ELEMENT_SYMBOLS = ('Cd', 'Pb', 'Hg', 'Br', 'Cr')
 ELEMENT_KEYS = {symbol: symbol.upper() for symbol in ELEMENT_SYMBOLS}
 HEADER_SCAN_LIMIT = 40
-APP_VERSION = '1.0.9'
+APP_VERSION = '1.0.10'
 OPTIMIZE_COMPRESSLEVEL = 4
+GITHUB_REPO_OWNER = 'WooDoGwon'
+GITHUB_REPO_NAME = 'Program'
+GITHUB_RELEASE_API_URL = f'https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest'
+GITHUB_RELEASE_PAGE_URL = f'https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases'
+UPDATE_ASSET_NAME_PREFIX = 'XRF_Report_Auto_Input_Setup_v'
+UPDATE_DOWNLOAD_DIR_NAME = 'updates'
+UPDATE_CHECK_TIMEOUT_SECONDS = 8
 LOGO_FILE_NAME = 'Logo.png'
 TOP_BAR_LOGO_HEIGHT = 44
 TOP_BAR_LOGO_MAX_WIDTH = 170
 ABOUT_LOGO_HEIGHT = 58
 ABOUT_LOGO_MAX_WIDTH = 210
 VERSION_HISTORY = [
+    ('1.0.10', '\u0047\u0069\u0074\u0048\u0075\u0062 \uc790\ub3d9 \uc5c5\ub370\uc774\ud2b8 \uae30\ub2a5 \ucd94\uac00', '2026-04-22'),
     ('1.0.9', '버전 업데이트 / 노트북 화면 자동 맞춤 개선', '2026-04-21'),
     ('1.0.8', '버전 업데이트 / 기존 버전 파일 정리 / Excel Value 접근 개선 / 해상도 프리셋 확장', '2026-04-20'),
     ('1.0.7', '정식 버전 / 화면 모드 전환 / 최소 창 크기 고정', '2026-04-20'),
@@ -339,6 +349,96 @@ def display_settings_dir():
 
 def display_settings_path():
     return os.path.join(display_settings_dir(), DISPLAY_SETTINGS_FILE_NAME)
+
+
+def update_download_dir():
+    return os.path.join(display_settings_dir(), UPDATE_DOWNLOAD_DIR_NAME)
+
+
+def parse_version_parts(version_text):
+    parts = []
+    for part in re.findall(r'\d+', str(version_text or '')):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:4])
+
+
+def normalize_release_version(version_text):
+    text = str(version_text or '').strip()
+    if text.lower().startswith('v'):
+        text = text[1:]
+    match = re.search(r'\d+(?:\.\d+){1,3}', text)
+    return match.group(0) if match else text
+
+
+def is_newer_version(candidate_version, current_version=APP_VERSION):
+    return parse_version_parts(candidate_version) > parse_version_parts(current_version)
+
+
+def choose_update_asset(assets):
+    setup_assets = []
+    fallback_assets = []
+    for asset in assets or []:
+        name = str(asset.get('name') or '')
+        download_url = asset.get('browser_download_url')
+        if not download_url or not name.lower().endswith('.exe'):
+            continue
+        if name.startswith(UPDATE_ASSET_NAME_PREFIX):
+            setup_assets.append(asset)
+        elif 'setup' in name.lower():
+            fallback_assets.append(asset)
+    return (setup_assets or fallback_assets or [None])[0]
+
+
+def fetch_latest_release_info():
+    request = urllib.request.Request(
+        GITHUB_RELEASE_API_URL,
+        headers={
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'XRF-Report-Auto-Input-Updater',
+        },
+    )
+    with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response:
+        data = json.loads(response.read().decode('utf-8'))
+
+    version = normalize_release_version(data.get('tag_name') or data.get('name') or '')
+    asset = choose_update_asset(data.get('assets') or [])
+    return {
+        'version': version,
+        'tag_name': data.get('tag_name') or '',
+        'name': data.get('name') or '',
+        'body': data.get('body') or '',
+        'html_url': data.get('html_url') or GITHUB_RELEASE_PAGE_URL,
+        'asset_name': asset.get('name') if asset else '',
+        'asset_url': asset.get('browser_download_url') if asset else '',
+    }
+
+
+def download_update_installer(download_url, asset_name):
+    if not download_url:
+        raise RuntimeError('\uc5c5\ub370\uc774\ud2b8 \uc124\uce58\ud30c\uc77c \ub2e4\uc6b4\ub85c\ub4dc \uc8fc\uc18c\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.')
+
+    safe_name = os.path.basename(asset_name or f'{UPDATE_ASSET_NAME_PREFIX}{normalize_release_version(APP_VERSION)}.exe')
+    target_dir = update_download_dir()
+    os.makedirs(target_dir, exist_ok=True)
+    target_path = os.path.join(target_dir, safe_name)
+    temp_path = target_path + '.download'
+
+    request = urllib.request.Request(
+        download_url,
+        headers={'User-Agent': 'XRF-Report-Auto-Input-Updater'},
+    )
+    with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response, open(temp_path, 'wb') as file:
+        shutil.copyfileobj(response, file)
+
+    if os.path.exists(target_path):
+        os.remove(target_path)
+    os.replace(temp_path, target_path)
+    return target_path
 
 
 def load_logo_image(max_width, max_height):
@@ -1926,6 +2026,8 @@ class XRFReportApp:
         self.windowed_geometry = self.root.geometry()
         self._responsive_after_id = None
         self._middle_layout_mode = None
+        self.update_check_in_progress = False
+        self.update_download_in_progress = False
         self.load_display_settings()
 
         self._build_ui()
@@ -1935,6 +2037,7 @@ class XRFReportApp:
         self.root.bind('<Escape>', self.handle_exit_fullscreen)
         self.root.bind('<Configure>', self._on_root_configure, add='+')
         self.root.protocol('WM_DELETE_WINDOW', self.on_close)
+        self.root.after(2500, lambda: self.check_for_updates(silent=True))
 
     def on_close(self):
         self.save_display_settings()
@@ -2281,6 +2384,7 @@ class XRFReportApp:
         help_menu.add_command(label='사용가이드', command=self.show_help_usage_guide)
         help_menu.add_separator()
         help_menu.add_command(label='문제 해결', command=self.show_help_troubleshooting)
+        help_menu.add_command(label='\uc5c5\ub370\uc774\ud2b8 \ud655\uc778', command=lambda: self.check_for_updates(silent=False))
         help_menu.add_command(label='프로그램 폴더 열기', command=self.open_program_folder)
         help_menu.add_separator()
         help_menu.add_command(label='Keyboard Shortcuts', command=self.show_help_shortcuts)
@@ -2325,6 +2429,143 @@ class XRFReportApp:
             'Esc : 전체 모드에서 창 모드로 복귀',
             '목록은 마우스 휠로 스크롤할 수 있습니다.',
         ]))
+
+
+    def check_for_updates(self, silent=False):
+        if self.update_check_in_progress:
+            if not silent:
+                messagebox.showinfo('\uc5c5\ub370\uc774\ud2b8 \ud655\uc778', '\uc774\ubbf8 \uc5c5\ub370\uc774\ud2b8\ub97c \ud655\uc778\ud558\ub294 \uc911\uc785\ub2c8\ub2e4.')
+            return
+
+        self.update_check_in_progress = True
+        if not silent:
+            self.status_var.set('GitHub\uc5d0\uc11c \ucd5c\uc2e0 \ubc84\uc804\uc744 \ud655\uc778\ud558\ub294 \uc911\uc785\ub2c8\ub2e4.')
+
+        thread = threading.Thread(target=self._check_for_updates_worker, args=(silent,), daemon=True)
+        thread.start()
+
+    def _check_for_updates_worker(self, silent):
+        try:
+            release_info = fetch_latest_release_info()
+        except Exception as exc:
+            self._schedule_ui(lambda: self._handle_update_check_failed(exc, silent))
+            return
+        self._schedule_ui(lambda: self._handle_update_check_result(release_info, silent))
+
+    def _schedule_ui(self, callback):
+        try:
+            self.root.after(0, callback)
+        except tk.TclError:
+            pass
+
+    def _handle_update_check_failed(self, error, silent):
+        self.update_check_in_progress = False
+        if silent:
+            return
+        messagebox.showerror(
+            '\uc5c5\ub370\uc774\ud2b8 \ud655\uc778 \uc2e4\ud328',
+            '\n'.join([
+                'GitHub \uc5c5\ub370\uc774\ud2b8 \uc815\ubcf4\ub97c \ubd88\ub7ec\uc624\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.',
+                '',
+                str(error),
+            ]),
+        )
+        self.status_var.set('\uc5c5\ub370\uc774\ud2b8 \ud655\uc778\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.')
+
+    def _handle_update_check_result(self, release_info, silent):
+        self.update_check_in_progress = False
+        latest_version = release_info.get('version') or ''
+        if not latest_version:
+            if not silent:
+                messagebox.showwarning('\uc5c5\ub370\uc774\ud2b8 \ud655\uc778', 'GitHub \ub9b4\ub9ac\uc2a4\uc5d0\uc11c \ubc84\uc804 \uc815\ubcf4\ub97c \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.')
+            return
+
+        if not is_newer_version(latest_version, APP_VERSION):
+            if not silent:
+                messagebox.showinfo(
+                    '\uc5c5\ub370\uc774\ud2b8 \ud655\uc778',
+                    f'\ud604\uc7ac \ucd5c\uc2e0 \ubc84\uc804\uc785\ub2c8\ub2e4.\n\n\ud604\uc7ac \ubc84\uc804: {APP_VERSION}\nGitHub \ucd5c\uc2e0 \ubc84\uc804: {latest_version}',
+                )
+                self.status_var.set('\ud604\uc7ac \ucd5c\uc2e0 \ubc84\uc804\uc785\ub2c8\ub2e4.')
+            return
+
+        if not release_info.get('asset_url'):
+            messagebox.showwarning(
+                '\uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c \uc5c6\uc74c',
+                '\n'.join([
+                    f'\uc0c8 \ubc84\uc804 {latest_version}\uc744 \ucc3e\uc558\uc9c0\ub9cc \uc124\uce58\ud30c\uc77c asset\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                    '',
+                    f'GitHub Releases\uc5d0 {UPDATE_ASSET_NAME_PREFIX}{latest_version}.exe \ud615\uc2dd\uc758 \uc124\uce58\ud30c\uc77c\uc744 \uc62c\ub824\uc8fc\uc138\uc694.',
+                ]),
+            )
+            self.status_var.set('\uc0c8 \ubc84\uc804\uc740 \uc788\uc73c\ub098 \uc124\uce58\ud30c\uc77c\uc744 \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.')
+            return
+
+        if messagebox.askyesno(
+            '\uc0c8 \uc5c5\ub370\uc774\ud2b8 \ubc1c\uacac',
+            '\n'.join([
+                f'\ud604\uc7ac \ubc84\uc804: {APP_VERSION}',
+                f'\ucd5c\uc2e0 \ubc84\uc804: {latest_version}',
+                '',
+                '\uc124\uce58\ud30c\uc77c\uc744 \ub2e4\uc6b4\ub85c\ub4dc\ud558\uace0 \uc5c5\ub370\uc774\ud2b8\ub97c \uc2dc\uc791\ud560\uae4c\uc694?',
+            ]),
+        ):
+            self.download_and_run_update(release_info)
+        else:
+            self.status_var.set('\uc5c5\ub370\uc774\ud2b8\uac00 \ucde8\uc18c\ub418\uc5c8\uc2b5\ub2c8\ub2e4.')
+
+    def download_and_run_update(self, release_info):
+        if self.update_download_in_progress:
+            messagebox.showinfo('\uc5c5\ub370\uc774\ud2b8 \ub2e4\uc6b4\ub85c\ub4dc', '\uc774\ubbf8 \uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c\uc744 \ub2e4\uc6b4\ub85c\ub4dc\ud558\ub294 \uc911\uc785\ub2c8\ub2e4.')
+            return
+
+        self.update_download_in_progress = True
+        self.status_var.set('\uc5c5\ub370\uc774\ud2b8 \uc124\uce58\ud30c\uc77c\uc744 \ub2e4\uc6b4\ub85c\ub4dc\ud558\ub294 \uc911\uc785\ub2c8\ub2e4.')
+        thread = threading.Thread(target=self._download_update_worker, args=(release_info,), daemon=True)
+        thread.start()
+
+    def _download_update_worker(self, release_info):
+        try:
+            installer_path = download_update_installer(
+                release_info.get('asset_url'),
+                release_info.get('asset_name'),
+            )
+        except Exception as exc:
+            self._schedule_ui(lambda: self._handle_update_download_failed(exc))
+            return
+        self._schedule_ui(lambda: self._handle_update_download_complete(installer_path, release_info.get('version') or ''))
+
+    def _handle_update_download_failed(self, error):
+        self.update_download_in_progress = False
+        messagebox.showerror(
+            '\uc5c5\ub370\uc774\ud2b8 \ub2e4\uc6b4\ub85c\ub4dc \uc2e4\ud328',
+            '\n'.join([
+                '\uc5c5\ub370\uc774\ud2b8 \uc124\uce58\ud30c\uc77c \ub2e4\uc6b4\ub85c\ub4dc\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.',
+                '',
+                str(error),
+            ]),
+        )
+        self.status_var.set('\uc5c5\ub370\uc774\ud2b8 \ub2e4\uc6b4\ub85c\ub4dc\uc5d0 \uc2e4\ud328\ud588\uc2b5\ub2c8\ub2e4.')
+
+    def _handle_update_download_complete(self, installer_path, latest_version):
+        self.update_download_in_progress = False
+        self.status_var.set('\uc5c5\ub370\uc774\ud2b8 \uc124\uce58\ud30c\uc77c \ub2e4\uc6b4\ub85c\ub4dc\uac00 \uc644\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.')
+        if not messagebox.askyesno(
+            '\uc5c5\ub370\uc774\ud2b8 \uc2e4\ud589',
+            '\n'.join([
+                f'\ubc84\uc804 {latest_version} \uc124\uce58\ud30c\uc77c \ub2e4\uc6b4\ub85c\ub4dc\uac00 \uc644\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.',
+                '',
+                '\uc124\uce58\ud30c\uc77c\uc744 \uc2e4\ud589\ud558\uace0 \ud604\uc7ac \ud504\ub85c\uadf8\ub7a8\uc744 \uc885\ub8cc\ud560\uae4c\uc694?',
+            ]),
+        ):
+            return
+
+        try:
+            os.startfile(installer_path)
+        except OSError as exc:
+            messagebox.showerror('\uc5c5\ub370\uc774\ud2b8 \uc2e4\ud589 \uc2e4\ud328', f'\uc124\uce58\ud30c\uc77c\uc744 \uc2e4\ud589\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.\n{exc}')
+            return
+        self.on_close()
 
     def show_previous_version_history(self):
         previous_rows = list(VERSION_HISTORY[1:])
