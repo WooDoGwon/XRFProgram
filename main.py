@@ -29,7 +29,7 @@ EXCEL_FILE_TYPES = [
 ELEMENT_SYMBOLS = ('Cd', 'Pb', 'Hg', 'Br', 'Cr')
 ELEMENT_KEYS = {symbol: symbol.upper() for symbol in ELEMENT_SYMBOLS}
 HEADER_SCAN_LIMIT = 40
-APP_VERSION = '1.0.10'
+APP_VERSION = '1.1.0'
 OPTIMIZE_COMPRESSLEVEL = 4
 GITHUB_REPO_OWNER = 'WooDoGwon'
 GITHUB_REPO_NAME = 'Program'
@@ -44,6 +44,7 @@ TOP_BAR_LOGO_MAX_WIDTH = 170
 ABOUT_LOGO_HEIGHT = 58
 ABOUT_LOGO_MAX_WIDTH = 210
 VERSION_HISTORY = [
+    ('1.1.0', '\ubc84\uc804 \ud45c\uae30 1.1.0 \uc801\uc6a9', '2026-04-22'),
     ('1.0.10', '\u0047\u0069\u0074\u0048\u0075\u0062 \uc790\ub3d9 \uc5c5\ub370\uc774\ud2b8 \uae30\ub2a5 \ucd94\uac00', '2026-04-22'),
     ('1.0.9', '버전 업데이트 / 노트북 화면 자동 맞춤 개선', '2026-04-21'),
     ('1.0.8', '버전 업데이트 / 기존 버전 파일 정리 / Excel Value 접근 개선 / 해상도 프리셋 확장', '2026-04-20'),

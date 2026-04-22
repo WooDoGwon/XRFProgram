@@ -1,8 +1,8 @@
 ﻿#define MyAppName "XRF Report Auto Input"
-#define MyAppVersion "1.0.10"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "XRF Tools"
-#define MyAppExeName "XRF_Report_Auto_Input_v1.0.10.exe"
-#define MySetupBaseName "XRF_Report_Auto_Input_Setup_v1.0.10"
+#define MyAppExeName "XRF_Report_Auto_Input_v1.1.0.exe"
+#define MySetupBaseName "XRF_Report_Auto_Input_Setup_v1.1.0"
 
 [Setup]
 AppId={{5D2CBE83-2E1A-4B36-A2FD-7AD6F8B9E1F1}
