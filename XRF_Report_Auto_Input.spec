@@ -10,7 +10,11 @@ version_match = re.search(r"APP_VERSION\s*=\s*['\"]([^'\"]+)['\"]", main_text)
 APP_VERSION = version_match.group(1) if version_match else '1.0.0'
 APP_EXE_NAME = f'XRF_Report_Auto_Input_v{APP_VERSION}'
 logo_path = project_dir / 'Logo.png'
-data_files = [(str(logo_path), '.')] if logo_path.exists() else []
+app_icon_path = project_dir / 'AppIcon.ico'
+app_icon_png_path = project_dir / 'AppIcon.png'
+asset_paths = (logo_path, app_icon_path, app_icon_png_path)
+data_files = [(str(asset_path), '.') for asset_path in asset_paths if asset_path.exists()]
+app_icon_arg = str(app_icon_path) if app_icon_path.exists() else None
 
 version_parts = [part for part in APP_VERSION.split('.') if part.isdigit()]
 while len(version_parts) < 4:
@@ -88,4 +92,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=str(version_info_path),
+    icon=app_icon_arg,
 )

@@ -5,12 +5,14 @@ import shutil
 import sys
 import tempfile
 import threading
+import subprocess
 import unicodedata
 import zipfile
 import urllib.error
 import urllib.request
 import ctypes
 import ctypes.wintypes
+from datetime import datetime
 from collections import Counter, defaultdict
 from copy import copy, deepcopy
 import tkinter as tk
@@ -29,7 +31,7 @@ EXCEL_FILE_TYPES = [
 ELEMENT_SYMBOLS = ('Cd', 'Pb', 'Hg', 'Br', 'Cr')
 ELEMENT_KEYS = {symbol: symbol.upper() for symbol in ELEMENT_SYMBOLS}
 HEADER_SCAN_LIMIT = 40
-APP_VERSION = '1.1.1'
+APP_VERSION = '1.1.8'
 OPTIMIZE_COMPRESSLEVEL = 4
 GITHUB_REPO_OWNER = 'WooDoGwon'
 GITHUB_REPO_NAME = 'Program'
@@ -38,12 +40,23 @@ GITHUB_RELEASE_PAGE_URL = f'https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_
 UPDATE_ASSET_NAME_PREFIX = 'XRF_Report_Auto_Input_Setup_v'
 UPDATE_DOWNLOAD_DIR_NAME = 'updates'
 UPDATE_CHECK_TIMEOUT_SECONDS = 8
+UPDATE_DOWNLOAD_TIMEOUT_SECONDS = 120
+UPDATER_USER_AGENT = 'XRF-Report-Auto-Input-Updater'
 LOGO_FILE_NAME = 'Logo.png'
+APP_ICON_FILE_NAME = 'AppIcon.ico'
+APP_ICON_PNG_FILE_NAME = 'AppIcon.png'
 TOP_BAR_LOGO_HEIGHT = 44
 TOP_BAR_LOGO_MAX_WIDTH = 170
 ABOUT_LOGO_HEIGHT = 58
 ABOUT_LOGO_MAX_WIDTH = 210
 VERSION_HISTORY = [
+    ('1.1.8', '유해물질표 자동 업데이트 날짜 파일명 저장 추가', '2026-06-19'),
+    ('1.1.7', 'GitHub 업데이트 인증서/다운로드 오류 보완', '2026-04-27'),
+    ('1.1.6', '언어 설정(한국어/영어/베트남어) 기능 추가', '2026-04-23'),
+    ('1.1.5', '현재 버전 업데이트 이력 포함 및 버전 표기 갱신', '2026-04-22'),
+    ('1.1.4', '\ub178\ud2b8\ubd81 \ud654\uba74 \uc790\ub3d9 \ub9de\ucda4 \ubc0f \uc804\uccb4 \uc2a4\ud06c\ub864 \uac1c\uc120', '2026-04-22'),
+    ('1.1.3', '\uc5c5\ub370\uc774\ud2b8 \uc0ac\ud56d \ud45c\uc2dc \ubc30\uc9c0 \uae30\ub2a5 \ucd94\uac00', '2026-04-22'),
+    ('1.1.2', '\ub208 \ud53c\ub85c\ub97c \uc904\uc778 \uc5b4\ub450\uc6b4 UI \ud14c\ub9c8 \uc801\uc6a9', '2026-04-22'),
     ('1.1.1', '\uc790\ub3d9 \uc5c5\ub370\uc774\ud2b8 \ubc30\ud3ec\uc6a9 \ubc84\uc804 \uac31\uc2e0', '2026-04-22'),
     ('1.1.0', '\ubc84\uc804 \ud45c\uae30 1.1.0 \uc801\uc6a9', '2026-04-22'),
     ('1.0.10', '\u0047\u0069\u0074\u0048\u0075\u0062 \uc790\ub3d9 \uc5c5\ub370\uc774\ud2b8 \uae30\ub2a5 \ucd94\uac00', '2026-04-22'),
@@ -56,8 +69,8 @@ VERSION_HISTORY = [
 ]
 VERSION_INFO_MIN_ROWS = 4
 DEFAULT_WINDOW_SIZE = (1360, 840)
-DEFAULT_MIN_WINDOW_SIZE = (1220, 760)
-MIN_WINDOW_SIZE = (800, 600)
+DEFAULT_MIN_WINDOW_SIZE = (1040, 640)
+MIN_WINDOW_SIZE = (760, 560)
 UI_SCALE_MIN = 0.55
 UI_SCALE_MAX = 2.0
 SCREEN_FIT_PADDING = (24, 32)
@@ -82,25 +95,330 @@ RESOLUTION_PRESETS = (
     ('FHD (1920 x 1080)', (1920, 1080)),
 )
 
+DEFAULT_LANGUAGE_CODE = 'ko'
+TRANSLATIONS = {'ko': {'language_name': '한국어',
+        'window_title': 'XRF Report Auto Input System',
+        'menu_view': '화면 모드',
+        'menu_fullscreen': '전체 모드',
+        'menu_windowed': '창 모드',
+        'menu_scale': '화면 배율',
+        'menu_resolution': '해상도 설정',
+        'menu_reset_display': '화면 설정 초기화',
+        'menu_language': '언어 설정',
+        'menu_help': 'Help',
+        'menu_usage_guide': '사용가이드',
+        'menu_troubleshooting': '문제 해결',
+        'menu_check_updates': '업데이트 확인',
+        'menu_open_program_folder': '프로그램 폴더 열기',
+        'menu_keyboard_shortcuts': 'Keyboard Shortcuts',
+        'menu_about': '버전 정보',
+        'main_source_title': '[재질 목록]',
+        'button_select_all': '전체선택',
+        'button_clear_all': '전체해제',
+        'button_load_material': '재질파일불러오기',
+        'button_clear_list': '목록 지우기',
+        'button_load_target': '기존 저장 파일 불러오기',
+        'button_load_total': '업체 TOTAL 불러오기',
+        'delete_header': '[삭제할 시트] 기존 저장 파일에서 삭제 후 새 시트를 삽입합니다.',
+        'option_optimize': '파일 최적화 사용 (xlsx/xlsm)',
+        'button_insert': '시트 삽입 실행',
+        'button_update_hazard': '유해물질표 업데이트',
+        'button_close': '닫기',
+        'target_not_selected': '기존 저장 파일 미선택',
+        'total_not_selected': '업체 TOTAL 파일 미선택',
+        'status_initial': '기존 저장 파일과 업체 TOTAL 파일을 불러오세요.',
+        'status_language_changed': '언어를 {language}로 변경했습니다.',
+        'status_scale_changed': '화면 배율을 {scale}로 변경했습니다.',
+        'status_resolution_changed': '해상도를 {width} x {height}로 변경했습니다.',
+        'status_display_reset': '화면 설정을 기본값으로 초기화했습니다.',
+        'status_fullscreen': '전체 모드로 전환되었습니다. Esc 키로 창 모드로 돌아갈 수 있습니다.',
+        'status_windowed': '창 모드로 전환되었습니다. F11 키로 전체 모드로 전환할 수 있습니다.',
+        'update_history_title': '업데이트 이력',
+        'update_history_heading': '전체 업데이트 이력',
+        'update_history_desc': '현재 버전을 포함한 전체 버전의 주요 변경 내용을 확인할 수 있습니다.',
+        'update_history_empty': '업데이트 이력이 없습니다.',
+        'table_version': '버전',
+        'table_feature': '주요 기능',
+        'table_date': '날짜',
+        'about_title': '버전 정보',
+        'about_desc': '현재 버전, 프로그램 정보, 업데이트 이력을 한 번에 확인할 수 있습니다.',
+        'about_current_version': '현재 버전',
+        'about_current_desc': '설치된 프로그램의 최신 버전 정보입니다.',
+        'about_history_hint': '우측 버전을 누르면 이전 버전 이력을 볼 수 있습니다.',
+        'about_program_name_label': '프로그램명',
+        'about_program_name_value': 'XRF Auto Input System',
+        'about_author_label': '제작자',
+        'about_author_value': '우도권',
+        'about_user_label': '사용자',
+        'about_user_value': '품질팀',
+        'about_purpose_label': '사용 목적',
+        'about_purpose_value': 'XRF자료 자동업데이트',
+        'about_notice': '이 프로그램은 풍원공업(주) 전용 프로그램이며 당사 직원 외 무단배포, 무단사용 등을 금합니다.',
+        'about_history_heading': '버전 업데이트 이력',
+        'about_history_desc': '최근 버전부터 순서대로 주요 변경 내용을 볼 수 있습니다.',
+        'help_usage_title': '사용가이드',
+        'help_usage_text': '[기본 사용 순서]\n'
+                           '1. 기존 저장 파일을 불러옵니다.\n'
+                           '2. 업체 TOTAL 파일을 불러옵니다.\n'
+                           '3. 재질파일불러오기 후 필요한 재질을 체크합니다.\n'
+                           '4. 시트 삽입 실행 또는 유해물질표 업데이트를 실행합니다.\n'
+                           '\n'
+                           '[시트 삽입 안내]\n'
+                           '- 왼쪽 재질 목록에서 삽입할 파일을 체크합니다.\n'
+                           '- 기존 저장 파일을 먼저 불러옵니다.\n'
+                           '- 삭제할 시트를 체크합니다.\n'
+                           '- 시트 삽입 실행을 누르면 선택한 재질 시트가 들어갑니다.\n'
+                           '\n'
+                           '[유해물질표 업데이트 안내]\n'
+                           '- 기존 저장 파일과 업체 TOTAL 파일을 불러옵니다.\n'
+                           '- 유해물질표 업데이트를 누르면 자동으로 매칭합니다.\n'
+                           '- 일반 파일은 재질 우선, Styler 파일은 품명 우선으로 매칭합니다.\n'
+                           '- 품명은 기존 값 유지, 업체명은 AZENTEK NO. 기준으로 들어갑니다.',
+        'help_troubleshooting_title': '문제 해결',
+        'help_troubleshooting_text': '- 작업할 엑셀 파일은 열려 있지 않게 해주세요.\n'
+                                     '- 기존 저장 파일과 업체 TOTAL 파일은 서로 다른 파일이어야 합니다.\n'
+                                     '- 파일 경로가 바뀌면 다시 불러오면 됩니다.\n'
+                                     '- TOTAL 데이터 시트가 안 잡히면 헤더명과 시트 구성을 확인해 주세요.',
+        'help_shortcuts_title': 'Keyboard Shortcuts',
+        'help_shortcuts_text': 'F11 : 전체 모드 전환\nEsc : 전체 모드에서 창 모드로 복귀\n목록은 마우스 휠로 스크롤할 수 있습니다.'},
+ 'en': {'language_name': 'English',
+        'window_title': 'XRF Report Auto Input System',
+        'menu_view': 'View Mode',
+        'menu_fullscreen': 'Full Screen',
+        'menu_windowed': 'Window Mode',
+        'menu_scale': 'UI Scale',
+        'menu_resolution': 'Resolution',
+        'menu_reset_display': 'Reset Display Settings',
+        'menu_language': 'Language',
+        'menu_help': 'Help',
+        'menu_usage_guide': 'User Guide',
+        'menu_troubleshooting': 'Troubleshooting',
+        'menu_check_updates': 'Check for Updates',
+        'menu_open_program_folder': 'Open Program Folder',
+        'menu_keyboard_shortcuts': 'Keyboard Shortcuts',
+        'menu_about': 'Version Info',
+        'main_source_title': '[Material List]',
+        'button_select_all': 'Select All',
+        'button_clear_all': 'Clear All',
+        'button_load_material': 'Load Material Files',
+        'button_clear_list': 'Clear List',
+        'button_load_target': 'Load Saved Files',
+        'button_load_total': 'Load Company TOTAL',
+        'delete_header': '[Sheets to Delete] Delete selected sheets from the saved file, then insert new sheets.',
+        'option_optimize': 'Use file optimization (xlsx/xlsm)',
+        'button_insert': 'Insert Sheets',
+        'button_update_hazard': 'Update Hazard Table',
+        'button_close': 'Close',
+        'target_not_selected': 'No saved file selected',
+        'total_not_selected': 'No company TOTAL file selected',
+        'status_initial': 'Load saved files and a company TOTAL file.',
+        'status_language_changed': 'Language changed to {language}.',
+        'status_scale_changed': 'UI scale changed to {scale}.',
+        'status_resolution_changed': 'Resolution changed to {width} x {height}.',
+        'status_display_reset': 'Display settings have been reset to default.',
+        'status_fullscreen': 'Full screen mode is on. Press Esc to return to window mode.',
+        'status_windowed': 'Window mode is on. Press F11 to switch to full screen.',
+        'update_history_title': 'Update History',
+        'update_history_heading': 'All Update History',
+        'update_history_desc': 'You can review major changes for all versions, including the current version.',
+        'update_history_empty': 'No update history available.',
+        'table_version': 'Version',
+        'table_feature': 'Main Feature',
+        'table_date': 'Date',
+        'about_title': 'Version Info',
+        'about_desc': 'Check the current version, program information, and update history in one place.',
+        'about_current_version': 'Current Version',
+        'about_current_desc': 'This is the latest installed program version.',
+        'about_history_hint': 'Click the version button on the right to view update history.',
+        'about_program_name_label': 'Program Name',
+        'about_program_name_value': 'XRF Auto Input System',
+        'about_author_label': 'Author',
+        'about_author_value': 'Woo Do Gwon',
+        'about_user_label': 'User',
+        'about_user_value': 'Quality Team',
+        'about_purpose_label': 'Purpose',
+        'about_purpose_value': 'Automatic XRF data update',
+        'about_notice': 'This program is for Poongwon Industrial use only. Unauthorized distribution or use by non-employees is '
+                        'prohibited.',
+        'about_history_heading': 'Version Update History',
+        'about_history_desc': 'Major changes are listed from the latest version.',
+        'help_usage_title': 'User Guide',
+        'help_usage_text': '[Basic Workflow]\n'
+                           '1. Load the saved file.\n'
+                           '2. Load the company TOTAL file.\n'
+                           '3. Load material files and check the required materials.\n'
+                           '4. Run Insert Sheets or Update Hazard Table.\n'
+                           '\n'
+                           '[Sheet Insert Guide]\n'
+                           '- Check the files to insert in the material list on the left.\n'
+                           '- Load the saved file first.\n'
+                           '- Check the sheets to delete.\n'
+                           '- Press Insert Sheets to insert the selected material sheets.\n'
+                           '\n'
+                           '[Hazard Table Update Guide]\n'
+                           '- Load the saved file and company TOTAL file.\n'
+                           '- Press Update Hazard Table to match data automatically.\n'
+                           '- Normal files match by material first; Styler files match by product name first.\n'
+                           '- Product name is kept as-is, and company name is filled from AZENTEK NO.',
+        'help_troubleshooting_title': 'Troubleshooting',
+        'help_troubleshooting_text': '- Close Excel files before processing.\n'
+                                     '- The saved file and company TOTAL file must be different files.\n'
+                                     '- If a file path changes, load the file again.\n'
+                                     '- If the TOTAL data sheet is not found, check the header names and sheet layout.',
+        'help_shortcuts_title': 'Keyboard Shortcuts',
+        'help_shortcuts_text': 'F11 : Toggle full screen\n'
+                               'Esc : Return to window mode from full screen\n'
+                               'Lists can be scrolled with the mouse wheel.'},
+ 'vi': {'language_name': 'Tiếng Việt',
+        'window_title': 'XRF Report Auto Input System',
+        'menu_view': 'Chế độ màn hình',
+        'menu_fullscreen': 'Toàn màn hình',
+        'menu_windowed': 'Chế độ cửa sổ',
+        'menu_scale': 'Tỷ lệ giao diện',
+        'menu_resolution': 'Độ phân giải',
+        'menu_reset_display': 'Đặt lại hiển thị',
+        'menu_language': 'Ngôn ngữ',
+        'menu_help': 'Trợ giúp',
+        'menu_usage_guide': 'Hướng dẫn sử dụng',
+        'menu_troubleshooting': 'Khắc phục sự cố',
+        'menu_check_updates': 'Kiểm tra cập nhật',
+        'menu_open_program_folder': 'Mở thư mục chương trình',
+        'menu_keyboard_shortcuts': 'Phím tắt',
+        'menu_about': 'Thông tin phiên bản',
+        'main_source_title': '[Danh sách vật liệu]',
+        'button_select_all': 'Chọn tất cả',
+        'button_clear_all': 'Bỏ chọn tất cả',
+        'button_load_material': 'Tải tệp vật liệu',
+        'button_clear_list': 'Xóa danh sách',
+        'button_load_target': 'Tải tệp lưu hiện có',
+        'button_load_total': 'Tải tệp TOTAL nhà cung cấp',
+        'delete_header': '[Sheet cần xóa] Xóa sheet đã chọn trong tệp lưu, sau đó chèn sheet mới.',
+        'option_optimize': 'Tối ưu tệp (xlsx/xlsm)',
+        'button_insert': 'Chèn sheet',
+        'button_update_hazard': 'Cập nhật bảng chất nguy hại',
+        'button_close': 'Đóng',
+        'target_not_selected': 'Chưa chọn tệp lưu hiện có',
+        'total_not_selected': 'Chưa chọn tệp TOTAL nhà cung cấp',
+        'status_initial': 'Hãy tải tệp lưu hiện có và tệp TOTAL nhà cung cấp.',
+        'status_language_changed': 'Đã đổi ngôn ngữ sang {language}.',
+        'status_scale_changed': 'Đã đổi tỷ lệ giao diện sang {scale}.',
+        'status_resolution_changed': 'Đã đổi độ phân giải sang {width} x {height}.',
+        'status_display_reset': 'Đã đặt lại cài đặt hiển thị về mặc định.',
+        'status_fullscreen': 'Đã chuyển sang toàn màn hình. Nhấn Esc để quay lại chế độ cửa sổ.',
+        'status_windowed': 'Đã chuyển sang chế độ cửa sổ. Nhấn F11 để chuyển sang toàn màn hình.',
+        'update_history_title': 'Lịch sử cập nhật',
+        'update_history_heading': 'Toàn bộ lịch sử cập nhật',
+        'update_history_desc': 'Có thể xem các thay đổi chính của mọi phiên bản, bao gồm phiên bản hiện tại.',
+        'update_history_empty': 'Không có lịch sử cập nhật.',
+        'table_version': 'Phiên bản',
+        'table_feature': 'Chức năng chính',
+        'table_date': 'Ngày',
+        'about_title': 'Thông tin phiên bản',
+        'about_desc': 'Xem phiên bản hiện tại, thông tin chương trình và lịch sử cập nhật tại một nơi.',
+        'about_current_version': 'Phiên bản hiện tại',
+        'about_current_desc': 'Đây là phiên bản chương trình mới nhất đã cài đặt.',
+        'about_history_hint': 'Nhấn nút phiên bản bên phải để xem lịch sử cập nhật.',
+        'about_program_name_label': 'Tên chương trình',
+        'about_program_name_value': 'XRF Auto Input System',
+        'about_author_label': 'Người tạo',
+        'about_author_value': 'Woo Do Gwon',
+        'about_user_label': 'Người dùng',
+        'about_user_value': 'Đội chất lượng',
+        'about_purpose_label': 'Mục đích',
+        'about_purpose_value': 'Tự động cập nhật dữ liệu XRF',
+        'about_notice': 'Chương trình này chỉ dành cho Poongwon Industrial. Cấm phân phối hoặc sử dụng trái phép bởi người ngoài công ty.',
+        'about_history_heading': 'Lịch sử cập nhật phiên bản',
+        'about_history_desc': 'Các thay đổi chính được liệt kê từ phiên bản mới nhất.',
+        'help_usage_title': 'Hướng dẫn sử dụng',
+        'help_usage_text': '[Quy trình cơ bản]\n'
+                           '1. Tải tệp lưu hiện có.\n'
+                           '2. Tải tệp TOTAL nhà cung cấp.\n'
+                           '3. Tải tệp vật liệu và chọn vật liệu cần thiết.\n'
+                           '4. Chạy Chèn sheet hoặc Cập nhật bảng chất nguy hại.\n'
+                           '\n'
+                           '[Hướng dẫn chèn sheet]\n'
+                           '- Chọn tệp cần chèn trong danh sách vật liệu bên trái.\n'
+                           '- Tải tệp lưu hiện có trước.\n'
+                           '- Chọn sheet cần xóa.\n'
+                           '- Nhấn Chèn sheet để chèn các sheet vật liệu đã chọn.\n'
+                           '\n'
+                           '[Hướng dẫn cập nhật bảng chất nguy hại]\n'
+                           '- Tải tệp lưu hiện có và tệp TOTAL nhà cung cấp.\n'
+                           '- Nhấn Cập nhật bảng chất nguy hại để tự động khớp dữ liệu.\n'
+                           '- Tệp thường ưu tiên khớp theo vật liệu; tệp Styler ưu tiên khớp theo tên sản phẩm.\n'
+                           '- Tên sản phẩm được giữ nguyên, tên công ty lấy từ AZENTEK NO.',
+        'help_troubleshooting_title': 'Khắc phục sự cố',
+        'help_troubleshooting_text': '- Hãy đóng các tệp Excel trước khi xử lý.\n'
+                                     '- Tệp lưu hiện có và tệp TOTAL nhà cung cấp phải là hai tệp khác nhau.\n'
+                                     '- Nếu đường dẫn tệp thay đổi, hãy tải lại tệp.\n'
+                                     '- Nếu không tìm thấy sheet dữ liệu TOTAL, hãy kiểm tra tên tiêu đề và cấu trúc sheet.',
+        'help_shortcuts_title': 'Phím tắt',
+        'help_shortcuts_text': 'F11 : Bật/tắt toàn màn hình\n'
+                               'Esc : Quay lại chế độ cửa sổ từ toàn màn hình\n'
+                               'Có thể cuộn danh sách bằng con lăn chuột.'}}
+LANGUAGE_OPTIONS = tuple((code, texts['language_name']) for code, texts in TRANSLATIONS.items())
+SUPPORTED_LANGUAGE_CODES = set(TRANSLATIONS)
+STATIC_TEXT_KEY_BY_TEXT = {
+    '[재질 목록]': 'main_source_title',
+    '전체선택': 'button_select_all',
+    '전체해제': 'button_clear_all',
+    '재질파일불러오기': 'button_load_material',
+    '목록 지우기': 'button_clear_list',
+    '기존 저장 파일 불러오기': 'button_load_target',
+    '업체 TOTAL 불러오기': 'button_load_total',
+    '[삭제할 시트] 기존 저장 파일에서 삭제 후 새 시트를 삽입합니다.': 'delete_header',
+    '파일 최적화 사용 (xlsx/xlsm)': 'option_optimize',
+    '시트 삽입 실행': 'button_insert',
+    '유해물질표 업데이트': 'button_update_hazard',
+}
+
+
+def normalize_language_code(language_code):
+    if isinstance(language_code, str) and language_code in SUPPORTED_LANGUAGE_CODES:
+        return language_code
+    return DEFAULT_LANGUAGE_CODE
+
+
+def get_language_label(language_code):
+    normalized_code = normalize_language_code(language_code)
+    return TRANSLATIONS[normalized_code]['language_name']
+
+
+def translate_ui_text(key, language_code=DEFAULT_LANGUAGE_CODE, **kwargs):
+    normalized_code = normalize_language_code(language_code)
+    language_texts = TRANSLATIONS.get(normalized_code, {})
+    fallback_texts = TRANSLATIONS[DEFAULT_LANGUAGE_CODE]
+    text_value = language_texts.get(key, fallback_texts.get(key, key))
+    if kwargs:
+        try:
+            return text_value.format(**kwargs)
+        except (KeyError, IndexError, ValueError):
+            return text_value
+    return text_value
+
+
 
 THEME_COLORS = {
-    'app_bg': '#edf2f7',
-    'top_bg': '#edf2f7',
-    'surface': '#ffffff',
-    'surface_alt': '#f8fafc',
-    'panel_border': '#cbd5e1',
-    'muted_border': '#d9e2ec',
-    'heading': '#172033',
-    'body_text': '#334155',
-    'muted_text': '#64748b',
-    'accent': '#0a72c4',
-    'accent_hover': '#095ea3',
-    'accent_soft': '#eaf4ff',
-    'danger': '#d11f1f',
-    'list_bg': '#f7fafc',
-    'list_row_alt': '#f1f5f9',
-    'button_bg': '#f8fafc',
-    'button_hover': '#eef4fa',
+    'app_bg': '#0f172a',
+    'top_bg': '#0f172a',
+    'surface': '#182235',
+    'surface_alt': '#202c41',
+    'panel_border': '#334155',
+    'muted_border': '#29384f',
+    'heading': '#f1f5f9',
+    'body_text': '#d6deea',
+    'muted_text': '#95a3b8',
+    'accent': '#5ea2ef',
+    'accent_hover': '#3b82d6',
+    'accent_soft': '#172b46',
+    'update_bg': '#8a5a10',
+    'update_hover': '#a66d14',
+    'update_fg': '#fff7ed',
+    'danger': '#f87171',
+    'list_bg': '#121c2e',
+    'list_row_alt': '#1b2638',
+    'button_bg': '#24324a',
+    'button_hover': '#2f405c',
 }
 
 DISPLAY_SETTINGS_DIR_NAME = 'XRF_Report_Auto_Input_System'
@@ -317,6 +635,40 @@ def build_file_labels(paths):
     return labels
 
 
+
+def build_dated_update_output_path(path, date_value=None):
+    abs_path = os.path.abspath(path)
+    directory, file_name = os.path.split(abs_path)
+    stem, ext = os.path.splitext(file_name)
+    if not ext:
+        ext = '.xlsx'
+    base_stem = re.sub(r'_\d{6}$', '', stem)
+    date_code = (date_value or datetime.now()).strftime('%y%m%d')
+    return os.path.join(directory, f'{base_stem}_{date_code}{ext}')
+
+
+def save_workbook_with_update_date(workbook, original_path, date_value=None):
+    target_path = build_dated_update_output_path(original_path, date_value=date_value)
+    abs_original_path = os.path.abspath(original_path)
+    if normalized_path(target_path) == normalized_path(abs_original_path):
+        workbook.Save()
+        return target_path
+
+    if os.path.exists(target_path):
+        os.remove(target_path)
+
+    save_kwargs = {}
+    try:
+        file_format = int(workbook.FileFormat)
+        if file_format:
+            save_kwargs['FileFormat'] = file_format
+    except Exception:
+        pass
+
+    workbook.SaveAs(os.path.abspath(target_path), **save_kwargs)
+    return target_path
+
+
 def configure_excel_app(excel):
     excel.Visible = False
     excel.DisplayAlerts = False
@@ -417,17 +769,69 @@ def choose_update_asset(assets):
     return (setup_assets or fallback_assets or [None])[0]
 
 
-def fetch_latest_release_info():
-    request = urllib.request.Request(
-        GITHUB_RELEASE_API_URL,
-        headers={
-            'Accept': 'application/vnd.github+json',
-            'User-Agent': 'XRF-Report-Auto-Input-Updater',
-        },
-    )
-    with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response:
-        data = json.loads(response.read().decode('utf-8'))
+def build_updater_headers(include_accept=False):
+    headers = {'User-Agent': UPDATER_USER_AGENT}
+    if include_accept:
+        headers['Accept'] = 'application/vnd.github+json'
+    return headers
 
+
+def quote_powershell_string(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def powershell_executable_path():
+    system_root = os.environ.get('SystemRoot', r'C:\Windows')
+    return os.path.join(system_root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+
+
+def run_powershell_script(script, timeout_seconds):
+    process = subprocess.run(
+        [
+            powershell_executable_path(),
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-Command',
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        timeout=max(int(timeout_seconds) + 20, 30),
+        check=False,
+    )
+    if process.returncode != 0:
+        error_text = (process.stderr or process.stdout or 'PowerShell command failed.').strip()
+        raise RuntimeError(error_text)
+    return process.stdout
+
+
+def fetch_latest_release_info_via_powershell():
+    script = "\n".join([
+        "$ProgressPreference = 'SilentlyContinue'",
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8",
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+        f"$headers = @{{ 'Accept' = {quote_powershell_string('application/vnd.github+json')}; 'User-Agent' = {quote_powershell_string(UPDATER_USER_AGENT)} }}",
+        f"$response = Invoke-WebRequest -Uri {quote_powershell_string(GITHUB_RELEASE_API_URL)} -Headers $headers -UseBasicParsing -TimeoutSec {int(UPDATE_CHECK_TIMEOUT_SECONDS)}",
+        "[Console]::Out.Write($response.Content)",
+    ])
+    return json.loads(run_powershell_script(script, UPDATE_CHECK_TIMEOUT_SECONDS))
+
+
+def download_update_installer_via_powershell(download_url, temp_path):
+    script = "\n".join([
+        "$ProgressPreference = 'SilentlyContinue'",
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+        f"$headers = @{{ 'User-Agent' = {quote_powershell_string(UPDATER_USER_AGENT)} }}",
+        f"Invoke-WebRequest -Uri {quote_powershell_string(download_url)} -Headers $headers -UseBasicParsing -TimeoutSec {int(UPDATE_DOWNLOAD_TIMEOUT_SECONDS)} -OutFile {quote_powershell_string(temp_path)}",
+    ])
+    run_powershell_script(script, UPDATE_DOWNLOAD_TIMEOUT_SECONDS)
+
+
+def parse_release_info_payload(data):
     version = normalize_release_version(data.get('tag_name') or data.get('name') or '')
     asset = choose_update_asset(data.get('assets') or [])
     return {
@@ -441,9 +845,31 @@ def fetch_latest_release_info():
     }
 
 
+def fetch_latest_release_info():
+    request = urllib.request.Request(
+        GITHUB_RELEASE_API_URL,
+        headers=build_updater_headers(include_accept=True),
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except Exception as primary_exc:
+        try:
+            data = fetch_latest_release_info_via_powershell()
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                '\n'.join([
+                    'GitHub 업데이트 정보를 가져오지 못했습니다.',
+                    f'Python 연결 오류: {primary_exc}',
+                    f'PowerShell 연결 오류: {fallback_exc}',
+                ])
+            ) from fallback_exc
+    return parse_release_info_payload(data)
+
+
 def download_update_installer(download_url, asset_name):
     if not download_url:
-        raise RuntimeError('\uc5c5\ub370\uc774\ud2b8 \uc124\uce58\ud30c\uc77c \ub2e4\uc6b4\ub85c\ub4dc \uc8fc\uc18c\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.')
+        raise RuntimeError('업데이트 설치파일 다운로드 주소가 없습니다.')
 
     safe_name = os.path.basename(asset_name or f'{UPDATE_ASSET_NAME_PREFIX}{normalize_release_version(APP_VERSION)}.exe')
     target_dir = update_download_dir()
@@ -453,10 +879,27 @@ def download_update_installer(download_url, asset_name):
 
     request = urllib.request.Request(
         download_url,
-        headers={'User-Agent': 'XRF-Report-Auto-Input-Updater'},
+        headers=build_updater_headers(),
     )
-    with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response, open(temp_path, 'wb') as file:
-        shutil.copyfileobj(response, file)
+
+    try:
+        with urllib.request.urlopen(request, timeout=UPDATE_DOWNLOAD_TIMEOUT_SECONDS) as response, open(temp_path, 'wb') as file:
+            shutil.copyfileobj(response, file)
+    except Exception as primary_exc:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        try:
+            download_update_installer_via_powershell(download_url, temp_path)
+        except Exception as fallback_exc:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise RuntimeError(
+                '\n'.join([
+                    '업데이트 설치파일 다운로드에 실패했습니다.',
+                    f'Python 다운로드 오류: {primary_exc}',
+                    f'PowerShell 다운로드 오류: {fallback_exc}',
+                ])
+            ) from fallback_exc
 
     if os.path.exists(target_path):
         os.remove(target_path)
@@ -1595,16 +2038,17 @@ def update_hazardous_tables_from_total(total_path, target_paths):
                     source_records,
                     prefer_product=is_styler_xrf_path(target_path),
                 )
-                target_workbook.Save()
+                saved_path = save_workbook_with_update_date(target_workbook, target_path)
                 set_cached_target_inspection(
-                    target_path,
+                    saved_path,
                     [sheet.Name for sheet in target_workbook.Worksheets],
                     target_layout,
                 )
-                save_changes = True
+                save_changes = False
+                stats['saved_path'] = saved_path
                 stats['target_sheet_name'] = target_layout['sheet_name']
                 stats['source_sheet_name'] = total_layout['sheet_name']
-                results.append({'path': target_path, 'stats': stats})
+                results.append({'path': saved_path, 'original_path': target_path, 'stats': stats})
             except RuntimeError as exc:
                 failures.append({'path': target_path, 'error': str(exc)})
             except com_error:
@@ -1807,7 +2251,7 @@ class SelectableList(tk.Frame):
         if not self._pointer_inside_list(event):
             return
         if not self._can_scroll():
-            return 'break'
+            return
         step = -1 if event.delta > 0 else 1
         self.canvas.yview_scroll(step, 'units')
         return 'break'
@@ -1816,7 +2260,7 @@ class SelectableList(tk.Frame):
         if not self._pointer_inside_list(event):
             return
         if not self._can_scroll():
-            return 'break'
+            return
         step = -1 if getattr(event, 'num', 0) == 4 else 1
         self.canvas.yview_scroll(step, 'units')
         return 'break'
@@ -1846,7 +2290,7 @@ class SelectableList(tk.Frame):
 
     def _rebuild_rows(self):
         for index, item in enumerate(self._items):
-            row_bg = THEME_COLORS['surface'] if index % 2 == 0 else THEME_COLORS['surface_alt']
+            row_bg = THEME_COLORS['list_bg'] if index % 2 == 0 else THEME_COLORS['list_row_alt']
             row = tk.Frame(self.inner, bg=row_bg, padx=10, pady=5)
             row.pack(fill='x', anchor='w')
 
@@ -1981,14 +2425,14 @@ class ScrollableInfoBox(tk.Frame):
 
     def _on_mousewheel(self, event):
         if not self._can_scroll():
-            return 'break'
+            return
         step = -1 if event.delta > 0 else 1
         self.text.yview_scroll(step, 'units')
         return 'break'
 
     def _on_mousewheel_linux(self, event):
         if not self._can_scroll():
-            return 'break'
+            return
         step = -1 if getattr(event, 'num', 0) == 4 else 1
         self.text.yview_scroll(step, 'units')
         return 'break'
@@ -2013,12 +2457,38 @@ class ScrollableInfoBox(tk.Frame):
             self.text.configure(font=('\ub9d1\uc740 \uace0\ub515', self._font_size, 'bold'))
 
 class XRFReportApp:
+    def apply_window_icon(self, window):
+        if not hasattr(self, 'app_icon_image'):
+            self.app_icon_image = None
+
+        icon_path = resource_path(APP_ICON_FILE_NAME)
+        if os.path.isfile(icon_path):
+            try:
+                window.iconbitmap(icon_path)
+            except tk.TclError:
+                pass
+
+        png_icon_path = resource_path(APP_ICON_PNG_FILE_NAME)
+        if self.app_icon_image is None and os.path.isfile(png_icon_path):
+            try:
+                self.app_icon_image = tk.PhotoImage(file=png_icon_path)
+            except tk.TclError:
+                self.app_icon_image = None
+
+        if self.app_icon_image is not None:
+            try:
+                window.iconphoto(True, self.app_icon_image)
+            except tk.TclError:
+                pass
+
     def __init__(self, root):
         self.root = root
-        self.root.title('XRF Report Auto Input System')
+        self.root.title(translate_ui_text('window_title'))
         self.root.geometry(f'{DEFAULT_WINDOW_SIZE[0]}x{DEFAULT_WINDOW_SIZE[1]}')
         self.root.minsize(*MIN_WINDOW_SIZE)
         self.root.configure(bg=THEME_COLORS['app_bg'])
+        self.app_icon_image = None
+        self.apply_window_icon(self.root)
 
         self.source_paths = []
         self.target_workbook_paths = []
@@ -2033,9 +2503,9 @@ class XRFReportApp:
         self.target_inspection_pending = False
         self.total_inspection_pending = False
 
-        self.target_info_message = '기존 저장 파일 미선택'
-        self.total_info_var = tk.StringVar(value='업체 TOTAL 파일 미선택')
-        self.status_var = tk.StringVar(value='기존 저장 파일과 업체 TOTAL 파일을 불러오세요.')
+        self.target_info_message = translate_ui_text('target_not_selected')
+        self.total_info_var = tk.StringVar(value=translate_ui_text('total_not_selected'))
+        self.status_var = tk.StringVar(value=translate_ui_text('status_initial'))
         self.result_var = tk.StringVar(value='READY')
         self.optimize_var = tk.BooleanVar(value=False)
         self.about_window = None
@@ -2044,16 +2514,30 @@ class XRFReportApp:
         self.fullscreen_mode = False
         self.default_tk_scaling = float(self.root.tk.call('tk', 'scaling'))
         self.ui_scale_factor = 1.0
+        self.language_code = DEFAULT_LANGUAGE_CODE
         self.window_resolution = DEFAULT_WINDOW_SIZE
         self.current_min_window_size = DEFAULT_MIN_WINDOW_SIZE
         self.ui_scale_var = tk.StringVar(value=self.get_scale_menu_value(1.0))
         self.resolution_var = tk.StringVar(value=self.get_resolution_menu_value(DEFAULT_WINDOW_SIZE))
+        self.language_var = tk.StringVar(value=get_language_label(self.language_code))
+        self.localized_widgets = []
         self.windowed_geometry = self.root.geometry()
         self._responsive_after_id = None
         self._middle_layout_mode = None
+        self.main_canvas = None
+        self.main_content = None
+        self.main_window_id = None
+        self.main_scrollbar = None
         self.update_check_in_progress = False
         self.update_download_in_progress = False
+        self.available_update_info = None
+        self.update_notice_var = tk.StringVar(value='')
+        self.update_notice_visible = False
         self.load_display_settings()
+        self.root.title(self.tr('window_title'))
+        self.target_info_message = self.tr('target_not_selected')
+        self.total_info_var.set(self.tr('total_not_selected'))
+        self.status_var.set(self.tr('status_initial'))
 
         self._build_ui()
         self._build_menu()
@@ -2068,6 +2552,56 @@ class XRFReportApp:
         self.save_display_settings()
         shutdown_excel_application()
         self.root.destroy()
+
+
+    def tr(self, key, **kwargs):
+        return translate_ui_text(key, self.language_code, **kwargs)
+
+    def register_localized_widget(self, widget, key):
+        self.localized_widgets.append((widget, key))
+        widget.configure(text=self.tr(key))
+        return widget
+
+    def register_localized_static_widgets(self):
+        self.localized_widgets = []
+
+        def walk(widget):
+            try:
+                widget_text = widget.cget('text')
+            except tk.TclError:
+                widget_text = None
+            if widget_text in STATIC_TEXT_KEY_BY_TEXT:
+                self.register_localized_widget(widget, STATIC_TEXT_KEY_BY_TEXT[widget_text])
+            for child in widget.winfo_children():
+                walk(child)
+
+        if self.root.winfo_exists():
+            walk(self.root)
+
+    def refresh_language(self):
+        self.root.title(self.tr('window_title'))
+        for widget, key in list(self.localized_widgets):
+            if widget.winfo_exists():
+                widget.configure(text=self.tr(key))
+
+        if not self.target_workbook_paths and hasattr(self, 'target_info_box'):
+            self.target_info_message = self.tr('target_not_selected')
+            self.target_info_box.set_text(self.target_info_message)
+        if not self.total_source_path:
+            self.total_info_var.set(self.tr('total_not_selected'))
+
+    def set_language(self, language_code):
+        normalized_code = normalize_language_code(language_code)
+        self.language_code = normalized_code
+        self.language_var.set(get_language_label(normalized_code))
+        self.save_display_settings()
+        self._build_menu()
+        self.refresh_language()
+        self.set_status(
+            self.tr('status_language_changed', language=get_language_label(normalized_code)),
+            'READY',
+            THEME_COLORS['accent'],
+        )
 
     def load_display_settings(self):
         settings_path = display_settings_path()
@@ -2091,8 +2625,12 @@ class XRFReportApp:
             if width > 0 and height > 0:
                 self.window_resolution = (width, height)
 
+        language_value = data.get('language_code')
+        self.language_code = normalize_language_code(language_value)
+
         self.ui_scale_var.set(self.get_scale_menu_value())
         self.resolution_var.set(self.get_resolution_menu_value())
+        self.language_var.set(get_language_label(self.language_code))
 
 
     def save_display_settings(self):
@@ -2104,6 +2642,7 @@ class XRFReportApp:
                     {
                         'ui_scale_factor': self.ui_scale_factor,
                         'window_resolution': [int(self.window_resolution[0]), int(self.window_resolution[1])],
+                        'language_code': self.language_code,
                     },
                     file,
                     ensure_ascii=False,
@@ -2189,14 +2728,10 @@ class XRFReportApp:
 
         scaled_min_width = int(round(DEFAULT_MIN_WINDOW_SIZE[0] * effective_scale_factor))
         scaled_min_height = int(round(DEFAULT_MIN_WINDOW_SIZE[1] * effective_scale_factor))
-        required_width = min(
-            max(MIN_WINDOW_SIZE[0], scaled_min_width, self.root.winfo_reqwidth()),
-            available_width,
-        )
-        required_height = min(
-            max(MIN_WINDOW_SIZE[1], scaled_min_height, self.root.winfo_reqheight()),
-            available_height,
-        )
+        # The main content is scrollable, so requested content height must not force
+        # the window taller than a laptop work area.
+        required_width = min(max(MIN_WINDOW_SIZE[0], scaled_min_width), available_width)
+        required_height = min(max(MIN_WINDOW_SIZE[1], scaled_min_height), available_height)
         self.current_min_window_size = (required_width, required_height)
         self.root.minsize(required_width, required_height)
 
@@ -2222,6 +2757,59 @@ class XRFReportApp:
         self.ui_scale_var.set(self.get_scale_menu_value())
         self.resolution_var.set(self.get_resolution_menu_value())
         self.refresh_responsive_layout()
+    def _on_main_content_configure(self, _event=None):
+        self.refresh_main_scroll_region()
+
+    def _on_main_canvas_configure(self, event):
+        if self.main_window_id is not None:
+            self.main_canvas.itemconfigure(self.main_window_id, width=event.width)
+        self.refresh_main_scroll_region()
+
+    def refresh_main_scroll_region(self):
+        if self.main_canvas is None:
+            return
+        try:
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox('all'))
+            first, last = self.main_canvas.yview()
+            if first <= 0 and last >= 1:
+                self.main_canvas.yview_moveto(0)
+        except tk.TclError:
+            pass
+
+    def _pointer_inside_main_content(self, event):
+        if self.main_content is None:
+            return False
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+        while widget is not None:
+            if widget is self.main_content or widget is self.main_canvas:
+                return True
+            widget = widget.master
+        return False
+
+    def _main_can_scroll(self):
+        if self.main_canvas is None:
+            return False
+        first, last = self.main_canvas.yview()
+        return not (first <= 0 and last >= 1)
+
+    def _on_main_mousewheel(self, event):
+        if not self._pointer_inside_main_content(event):
+            return
+        if not self._main_can_scroll():
+            return
+        step = -1 if event.delta > 0 else 1
+        self.main_canvas.yview_scroll(step, 'units')
+        return 'break'
+
+    def _on_main_mousewheel_linux(self, event):
+        if not self._pointer_inside_main_content(event):
+            return
+        if not self._main_can_scroll():
+            return
+        step = -1 if getattr(event, 'num', 0) == 4 else 1
+        self.main_canvas.yview_scroll(step, 'units')
+        return 'break'
+
     def apply_window_layout_constraints(self):
         self.apply_display_settings()
 
@@ -2256,86 +2844,100 @@ class XRFReportApp:
         self.root.update_idletasks()
         window_width = max(self.root.winfo_width(), MIN_WINDOW_SIZE[0])
         window_height = max(self.root.winfo_height(), MIN_WINDOW_SIZE[1])
-        compact = window_width < 1440 or window_height < 860
-        tight = window_width < 1280 or window_height < 760
+        compact = window_width < 1440 or window_height < 840
+        tight = window_width < 1280 or window_height < 800
+        very_tight = window_height < 730
 
+        title_font_size = 15 if very_tight else (17 if tight else (18 if compact else 22))
         self.title_label.configure(
-            font=('\ub9d1\uc740 \uace0\ub515', 18 if compact else 22, 'bold'),
-            padx=18 if compact else 24,
-            pady=8 if compact else 10,
+            font=('\ub9d1\uc740 \uace0\ub515', title_font_size, 'bold'),
+            padx=14 if tight else (18 if compact else 24),
+            pady=5 if very_tight else (7 if tight else (8 if compact else 10)),
         )
+        self.title_label.pack_configure(pady=(8 if tight else 14, 8 if tight else 12))
 
-        list_text_size = 10 if tight else 12
-        list_check_size = 14 if tight else 16
-        source_list_width = 280 if tight else (320 if compact else 360)
-        source_list_height = min(560, max(320, window_height - (320 if compact else 290)))
+        if hasattr(self, 'body'):
+            self.body.pack_configure(padx=8 if very_tight else (10 if tight else 18), pady=(0, 6 if very_tight else (10 if tight else 18)))
+        if hasattr(self, 'left_panel'):
+            self.left_panel.pack_configure(padx=(0, 10 if tight else 18))
+
+        list_text_size = 9 if very_tight else (10 if tight else 12)
+        list_check_size = 12 if very_tight else (14 if tight else 16)
+        source_list_width = 250 if very_tight else (270 if tight else (320 if compact else 360))
+        source_reserved_height = 390 if very_tight else (350 if tight else (320 if compact else 290))
+        source_list_height = min(560, max(180 if very_tight else 230, window_height - source_reserved_height))
         self.source_list.configure_view(
             width=source_list_width,
             height=source_list_height,
             check_font_size=list_check_size,
             text_font_size=list_text_size,
-            wraplength=max(160, source_list_width - 92),
+            wraplength=max(140, source_list_width - 92),
         )
 
-        layout_mode = 'stacked' if (window_width < 1380 or window_height < 760) else 'side_by_side'
+        # Low-height laptop screens work better side-by-side; stack only when width is narrow.
+        layout_mode = 'stacked' if window_width < 1120 else 'side_by_side'
         self._set_middle_layout_mode(layout_mode)
 
-        right_width = max(420, window_width - source_list_width - 110)
-        info_width = max(380, right_width - 32)
+        right_width = max(360, window_width - source_list_width - (86 if tight else 110))
+        info_width = max(340, right_width - 32)
         self.target_info_box.configure_view(
             width=info_width,
-            height=96 if compact else 122,
-            font_size=10 if compact else 11,
+            height=56 if very_tight else (74 if tight else (96 if compact else 122)),
+            font_size=9 if very_tight else (10 if compact else 11),
         )
         self.total_info_label.configure(
-            font=('\ub9d1\uc740 \uace0\ub515', 10 if compact else 11, 'bold'),
-            wraplength=max(320, info_width - 48),
+            font=('\ub9d1\uc740 \uace0\ub515', 9 if very_tight else (10 if compact else 11), 'bold'),
+            wraplength=max(280, info_width - 48),
+            padx=9 if tight else 12,
+            pady=8 if tight else 12,
         )
 
-        delete_list_width = max(340, int(right_width * (0.92 if layout_mode == 'stacked' else 0.54)))
-        delete_list_height = 220 if tight else (260 if compact else 320)
+        self.middle_panel.pack_configure(pady=(6 if very_tight else (10 if tight else 16), 6 if very_tight else (10 if tight else 16)))
+        delete_list_width = max(300, int(right_width * (0.92 if layout_mode == 'stacked' else 0.54)))
+        delete_list_height = 120 if very_tight else (155 if tight else (230 if compact else 320))
         self.target_sheet_list.configure_view(
             width=delete_list_width,
             height=delete_list_height,
             check_font_size=list_check_size,
             text_font_size=list_text_size,
-            wraplength=max(180, delete_list_width - 92),
+            wraplength=max(160, delete_list_width - 92),
         )
         self.delete_header_label.configure(
-            font=('\ub9d1\uc740 \uace0\ub515', 12 if compact else 14, 'bold'),
-            wraplength=max(320, delete_list_width - 8),
+            font=('\ub9d1\uc740 \uace0\ub515', 10 if very_tight else (11 if tight else (12 if compact else 14)), 'bold'),
+            wraplength=max(280, delete_list_width - 8),
         )
 
         self.result_label.configure(
-            font=('\ub9d1\uc740 \uace0\ub515', 52 if tight else (60 if compact else 72), 'bold'),
-            pady=22 if compact else 40,
+            font=('\ub9d1\uc740 \uace0\ub515', 38 if very_tight else (44 if tight else (58 if compact else 72)), 'bold'),
+            pady=12 if very_tight else (16 if tight else (22 if compact else 40)),
         )
-        status_wrap = max(260, info_width - 48) if layout_mode == 'stacked' else max(240, int(right_width * 0.28))
+        status_wrap = max(240, info_width - 48) if layout_mode == 'stacked' else max(220, int(right_width * 0.28))
         self.status_label.configure(
-            font=('\ub9d1\uc740 \uace0\ub515', 11 if compact else 13, 'bold'),
+            font=('\ub9d1\uc740 \uace0\ub515', 9 if very_tight else (10 if tight else (11 if compact else 13)), 'bold'),
             wraplength=status_wrap,
-            padx=14 if compact else 18,
-            pady=12 if compact else 16,
+            padx=10 if tight else 18,
+            pady=8 if tight else 16,
         )
+        self.refresh_main_scroll_region()
 
     def set_ui_scale(self, factor):
         self.ui_scale_factor = float(factor)
         self.apply_display_settings(center=not self.fullscreen_mode)
         self.save_display_settings()
-        self.status_var.set(f'화면 배율을 {self.get_scale_menu_value()}로 변경했습니다.')
+        self.status_var.set(self.tr('status_scale_changed', scale=self.get_scale_menu_value()))
 
     def set_window_resolution(self, width, height):
         self.window_resolution = (int(width), int(height))
         self.apply_display_settings(center=not self.fullscreen_mode)
         self.save_display_settings()
-        self.status_var.set(f'해상도를 {width} x {height}로 변경했습니다.')
+        self.status_var.set(self.tr('status_resolution_changed', width=width, height=height))
 
     def reset_display_settings(self):
         self.ui_scale_factor = 1.0
         self.window_resolution = DEFAULT_WINDOW_SIZE
         self.apply_display_settings(center=True)
         self.save_display_settings()
-        self.status_var.set('화면 설정을 기본값으로 초기화했습니다.')
+        self.status_var.set(self.tr('status_display_reset'))
     def handle_toggle_fullscreen(self, _event=None):
         self.set_fullscreen_mode(not self.fullscreen_mode)
         return 'break'
@@ -2362,23 +2964,22 @@ class XRFReportApp:
             self.windowed_geometry = self.root.geometry()
             self.root.attributes('-fullscreen', True)
             self.fullscreen_mode = True
-            self.status_var.set('전체 모드로 전환되었습니다. Esc 키로 창 모드로 돌아갈 수 있습니다.')
+            self.status_var.set(self.tr('status_fullscreen'))
         else:
             self.root.attributes('-fullscreen', False)
             self.root.state('normal')
             self.root.geometry(self.windowed_geometry)
             self.root.update_idletasks()
             self.fullscreen_mode = False
-            self.status_var.set('창 모드로 전환되었습니다. F11 키로 전체 모드로 전환할 수 있습니다.')
+            self.status_var.set(self.tr('status_windowed'))
 
 
     def _build_menu(self):
-
         menu_bar = tk.Menu(self.root)
 
         view_menu = tk.Menu(menu_bar, tearoff=0)
-        view_menu.add_command(label='전체 모드', command=self.enter_fullscreen_mode)
-        view_menu.add_command(label='창 모드', command=self.exit_fullscreen_mode)
+        view_menu.add_command(label=self.tr('menu_fullscreen'), command=self.enter_fullscreen_mode)
+        view_menu.add_command(label=self.tr('menu_windowed'), command=self.exit_fullscreen_mode)
         view_menu.add_separator()
 
         scale_menu = tk.Menu(view_menu, tearoff=0)
@@ -2399,61 +3000,43 @@ class XRFReportApp:
                 command=lambda selected_size=size: self.set_window_resolution(*selected_size),
             )
 
-        view_menu.add_cascade(label='화면 배율', menu=scale_menu)
-        view_menu.add_cascade(label='해상도 설정', menu=resolution_menu)
+        view_menu.add_cascade(label=self.tr('menu_scale'), menu=scale_menu)
+        view_menu.add_cascade(label=self.tr('menu_resolution'), menu=resolution_menu)
         view_menu.add_separator()
-        view_menu.add_command(label='화면 설정 초기화', command=self.reset_display_settings)
-        menu_bar.add_cascade(label='화면 모드', menu=view_menu)
+        view_menu.add_command(label=self.tr('menu_reset_display'), command=self.reset_display_settings)
+        menu_bar.add_cascade(label=self.tr('menu_view'), menu=view_menu)
+
+        language_menu = tk.Menu(menu_bar, tearoff=0)
+        for language_code, language_label in LANGUAGE_OPTIONS:
+            language_menu.add_radiobutton(
+                label=language_label,
+                value=language_label,
+                variable=self.language_var,
+                command=lambda selected_code=language_code: self.set_language(selected_code),
+            )
+        menu_bar.add_cascade(label=self.tr('menu_language'), menu=language_menu)
 
         help_menu = tk.Menu(menu_bar, tearoff=0)
-        help_menu.add_command(label='사용가이드', command=self.show_help_usage_guide)
+        help_menu.add_command(label=self.tr('menu_usage_guide'), command=self.show_help_usage_guide)
         help_menu.add_separator()
-        help_menu.add_command(label='문제 해결', command=self.show_help_troubleshooting)
-        help_menu.add_command(label='\uc5c5\ub370\uc774\ud2b8 \ud655\uc778', command=lambda: self.check_for_updates(silent=False))
-        help_menu.add_command(label='프로그램 폴더 열기', command=self.open_program_folder)
+        help_menu.add_command(label=self.tr('menu_troubleshooting'), command=self.show_help_troubleshooting)
+        help_menu.add_command(label=self.tr('menu_check_updates'), command=lambda: self.check_for_updates(silent=False))
+        help_menu.add_command(label=self.tr('menu_open_program_folder'), command=self.open_program_folder)
         help_menu.add_separator()
-        help_menu.add_command(label='Keyboard Shortcuts', command=self.show_help_shortcuts)
-        help_menu.add_command(label='버전 정보', command=self.show_help_about)
-        menu_bar.add_cascade(label='Help', menu=help_menu)
+        help_menu.add_command(label=self.tr('menu_keyboard_shortcuts'), command=self.show_help_shortcuts)
+        help_menu.add_command(label=self.tr('menu_about'), command=self.show_help_about)
+        menu_bar.add_cascade(label=self.tr('menu_help'), menu=help_menu)
         self.root.configure(menu=menu_bar)
         self.menu_bar = menu_bar
 
     def show_help_usage_guide(self):
-
-        messagebox.showinfo('사용가이드', '\n'.join([
-            '[기본 사용 순서]',
-            '1. 기존 저장 파일을 불러옵니다.',
-            '2. 업체 TOTAL 파일을 불러옵니다.',
-            '3. 재질파일불러오기 후 필요한 재질을 체크합니다.',
-            '4. 시트 삽입 실행 또는 유해물질표 업데이트를 실행합니다.',
-            '',
-            '[시트 삽입 안내]',
-            '- 왼쪽 재질 목록에서 삽입할 파일을 체크합니다.',
-            '- 기존 저장 파일을 먼저 불러옵니다.',
-            '- 삭제할 시트를 체크합니다.',
-            '- 시트 삽입 실행을 누르면 선택한 재질 시트가 들어갑니다.',
-            '',
-            '[유해물질표 업데이트 안내]',
-            '- 기존 저장 파일과 업체 TOTAL 파일을 불러옵니다.',
-            '- 유해물질표 업데이트를 누르면 자동으로 매칭합니다.',
-            '- 일반 파일은 재질 우선, Styler 파일은 품명 우선으로 매칭합니다.',
-            '- 품명은 기존 값 유지, 업체명은 AZENTEK NO. 기준으로 들어갑니다.',
-        ]))
+        messagebox.showinfo(self.tr('help_usage_title'), self.tr('help_usage_text'))
 
     def show_help_troubleshooting(self):
-        messagebox.showinfo('문제 해결', '\n'.join([
-            '- 작업할 엑셀 파일은 열려 있지 않게 해주세요.',
-            '- 기존 저장 파일과 업체 TOTAL 파일은 서로 다른 파일이어야 합니다.',
-            '- 파일 경로가 바뀌면 다시 불러오면 됩니다.',
-            '- TOTAL 데이터 시트가 안 잡히면 헤더명과 시트 구성을 확인해 주세요.',
-        ]))
+        messagebox.showinfo(self.tr('help_troubleshooting_title'), self.tr('help_troubleshooting_text'))
 
     def show_help_shortcuts(self):
-        messagebox.showinfo('Keyboard Shortcuts', '\n'.join([
-            'F11 : 전체 모드 전환',
-            'Esc : 전체 모드에서 창 모드로 복귀',
-            '목록은 마우스 휠로 스크롤할 수 있습니다.',
-        ]))
+        messagebox.showinfo(self.tr('help_shortcuts_title'), self.tr('help_shortcuts_text'))
 
 
     def check_for_updates(self, silent=False):
@@ -2506,6 +3089,7 @@ class XRFReportApp:
             return
 
         if not is_newer_version(latest_version, APP_VERSION):
+            self.hide_update_notice()
             if not silent:
                 messagebox.showinfo(
                     '\uc5c5\ub370\uc774\ud2b8 \ud655\uc778',
@@ -2514,30 +3098,23 @@ class XRFReportApp:
                 self.status_var.set('\ud604\uc7ac \ucd5c\uc2e0 \ubc84\uc804\uc785\ub2c8\ub2e4.')
             return
 
+        self.show_update_notice(release_info)
         if not release_info.get('asset_url'):
-            messagebox.showwarning(
-                '\uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c \uc5c6\uc74c',
-                '\n'.join([
-                    f'\uc0c8 \ubc84\uc804 {latest_version}\uc744 \ucc3e\uc558\uc9c0\ub9cc \uc124\uce58\ud30c\uc77c asset\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.',
-                    '',
-                    f'GitHub Releases\uc5d0 {UPDATE_ASSET_NAME_PREFIX}{latest_version}.exe \ud615\uc2dd\uc758 \uc124\uce58\ud30c\uc77c\uc744 \uc62c\ub824\uc8fc\uc138\uc694.',
-                ]),
-            )
-            self.status_var.set('\uc0c8 \ubc84\uc804\uc740 \uc788\uc73c\ub098 \uc124\uce58\ud30c\uc77c\uc744 \ucc3e\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.')
+            self.status_var.set(f'\uc0c8 \uc5c5\ub370\uc774\ud2b8 v{latest_version}\uc744 \ucc3e\uc558\uc9c0\ub9cc \uc124\uce58\ud30c\uc77c\uc774 \uc544\uc9c1 \uc5c6\uc2b5\ub2c8\ub2e4.')
+            if not silent:
+                messagebox.showwarning(
+                    '\uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c \uc5c6\uc74c',
+                    '\n'.join([
+                        f'\uc0c8 \ubc84\uc804 {latest_version}\uc744 \ucc3e\uc558\uc9c0\ub9cc \uc124\uce58\ud30c\uc77c asset\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                        '',
+                        f'GitHub Releases\uc5d0 {UPDATE_ASSET_NAME_PREFIX}{latest_version}.exe \ud615\uc2dd\uc758 \uc124\uce58\ud30c\uc77c\uc744 \uc62c\ub824\uc8fc\uc138\uc694.',
+                    ]),
+                )
             return
 
-        if messagebox.askyesno(
-            '\uc0c8 \uc5c5\ub370\uc774\ud2b8 \ubc1c\uacac',
-            '\n'.join([
-                f'\ud604\uc7ac \ubc84\uc804: {APP_VERSION}',
-                f'\ucd5c\uc2e0 \ubc84\uc804: {latest_version}',
-                '',
-                '\uc124\uce58\ud30c\uc77c\uc744 \ub2e4\uc6b4\ub85c\ub4dc\ud558\uace0 \uc5c5\ub370\uc774\ud2b8\ub97c \uc2dc\uc791\ud560\uae4c\uc694?',
-            ]),
-        ):
-            self.download_and_run_update(release_info)
-        else:
-            self.status_var.set('\uc5c5\ub370\uc774\ud2b8\uac00 \ucde8\uc18c\ub418\uc5c8\uc2b5\ub2c8\ub2e4.')
+        self.status_var.set(f'\uc0c8 \uc5c5\ub370\uc774\ud2b8 v{latest_version}\uac00 \uc788\uc2b5\ub2c8\ub2e4. \uc0c1\ub2e8\uc758 \uc5c5\ub370\uc774\ud2b8 \ud45c\uc2dc\ub97c \ub20c\ub7ec \uc124\uce58\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.')
+        if not silent:
+            self.prompt_update_install(release_info)
 
     def download_and_run_update(self, release_info):
         if self.update_download_in_progress:
@@ -2592,8 +3169,67 @@ class XRFReportApp:
             return
         self.on_close()
 
+    def show_update_notice(self, release_info):
+        self.available_update_info = release_info
+        latest_version = release_info.get('version') or ''
+        if release_info.get('asset_url'):
+            self.update_notice_var.set(f'\uc5c5\ub370\uc774\ud2b8 \uc788\uc74c v{latest_version}')
+        else:
+            self.update_notice_var.set(f'\uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c \uc5c6\uc74c v{latest_version}')
+
+        if self.update_notice_visible:
+            return
+        try:
+            self.update_notice_button.pack(side='right', anchor='e', padx=(12, 0))
+            self.update_notice_visible = True
+        except (AttributeError, tk.TclError):
+            pass
+
+    def hide_update_notice(self):
+        self.available_update_info = None
+        self.update_notice_var.set('')
+        if not self.update_notice_visible:
+            return
+        try:
+            self.update_notice_button.pack_forget()
+        except (AttributeError, tk.TclError):
+            pass
+        self.update_notice_visible = False
+
+    def open_available_update(self):
+        if not self.available_update_info:
+            self.check_for_updates(silent=False)
+            return
+        self.prompt_update_install(self.available_update_info)
+
+    def prompt_update_install(self, release_info):
+        latest_version = release_info.get('version') or ''
+        if not release_info.get('asset_url'):
+            messagebox.showwarning(
+                '\uc5c5\ub370\uc774\ud2b8 \ud30c\uc77c \uc5c6\uc74c',
+                '\n'.join([
+                    f'\uc0c8 \ubc84\uc804 {latest_version}\uc744 \ucc3e\uc558\uc9c0\ub9cc \uc124\uce58\ud30c\uc77c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                    '',
+                    'GitHub Release\uc5d0 \uc124\uce58\ud30c\uc77c\uc744 \uc62c\ub9b0 \ud6c4 \ub2e4\uc2dc \ud655\uc778\ud574 \uc8fc\uc138\uc694.',
+                ]),
+            )
+            return
+
+        if messagebox.askyesno(
+            '\uc0c8 \uc5c5\ub370\uc774\ud2b8 \ubc1c\uacac',
+            '\n'.join([
+                f'\ud604\uc7ac \ubc84\uc804: {APP_VERSION}',
+                f'\ucd5c\uc2e0 \ubc84\uc804: {latest_version}',
+                '',
+                '\uc124\uce58\ud30c\uc77c\uc744 \ub2e4\uc6b4\ub85c\ub4dc\ud558\uace0 \uc5c5\ub370\uc774\ud2b8\ub97c \uc2dc\uc791\ud560\uae4c\uc694?',
+            ]),
+        ):
+            self.download_and_run_update(release_info)
+        else:
+            self.status_var.set('\uc5c5\ub370\uc774\ud2b8\uac00 \ucde8\uc18c\ub418\uc5c8\uc2b5\ub2c8\ub2e4.')
+
     def show_previous_version_history(self):
-        previous_rows = list(VERSION_HISTORY[1:])
+        history_rows = list(VERSION_HISTORY)
         if self.version_history_window is not None and self.version_history_window.winfo_exists():
             self.version_history_window.lift()
             self.version_history_window.focus_force()
@@ -2602,8 +3238,9 @@ class XRFReportApp:
         parent_window = self.about_window if self.about_window is not None and self.about_window.winfo_exists() else self.root
         window = tk.Toplevel(parent_window)
         self.version_history_window = window
-        window.title('이전 버전 이력')
-        window.configure(bg='#eef1f4')
+        self.apply_window_icon(window)
+        window.title(self.tr('update_history_title'))
+        window.configure(bg=THEME_COLORS['app_bg'])
         window.resizable(False, False)
         window.transient(parent_window)
 
@@ -2614,14 +3251,14 @@ class XRFReportApp:
 
         window.protocol('WM_DELETE_WINDOW', close_version_history_window)
 
-        outer = tk.Frame(window, bg='#eef1f4', padx=14, pady=14)
+        outer = tk.Frame(window, bg=THEME_COLORS['app_bg'], padx=14, pady=14)
         outer.pack(fill='both', expand=True)
 
         card = tk.Frame(
             outer,
             bg=THEME_COLORS['surface'],
             bd=0,
-            highlightbackground='#d4dae2',
+            highlightbackground=THEME_COLORS['panel_border'],
             highlightthickness=1,
             padx=16,
             pady=14,
@@ -2630,7 +3267,7 @@ class XRFReportApp:
 
         tk.Label(
             card,
-            text='이전 버전 업데이트 이력',
+            text=self.tr('update_history_heading'),
             bg=THEME_COLORS['surface'],
             fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 15, 'bold'),
@@ -2638,37 +3275,37 @@ class XRFReportApp:
 
         tk.Label(
             card,
-            text='현재 버전을 제외한 이전 버전의 주요 변경 내용을 확인할 수 있습니다.',
+            text=self.tr('update_history_desc'),
             bg=THEME_COLORS['surface'],
-            fg='#5f6b7a',
+            fg=THEME_COLORS['muted_text'],
             font=('Malgun Gothic', 9),
         ).pack(anchor='w', pady=(4, 10))
 
-        if not previous_rows:
+        if not history_rows:
             tk.Label(
                 card,
-                text='이전 버전 이력이 없습니다.',
-                bg='#f8fafc',
-                fg='#344150',
+                text=self.tr('update_history_empty'),
+                bg=THEME_COLORS['surface_alt'],
+                fg=THEME_COLORS['body_text'],
                 font=('Malgun Gothic', 10),
                 padx=18,
                 pady=18,
                 anchor='w',
             ).pack(fill='x')
         else:
-            table_shell = tk.Frame(card, bg='#d4dae2', padx=1, pady=1)
+            table_shell = tk.Frame(card, bg=THEME_COLORS['panel_border'], padx=1, pady=1)
             table_shell.pack(fill='both', expand=True)
 
             table_frame = tk.Frame(table_shell, bg=THEME_COLORS['surface'])
             table_frame.pack(fill='both', expand=True)
 
             column_specs = (
-                ('버전', 86, 'center', 0),
-                ('주요 기능', 220, 'w', 210),
-                ('날짜', 110, 'center', 0),
+                (self.tr('table_version'), 86, 'center', 0),
+                (self.tr('table_feature'), 220, 'w', 210),
+                (self.tr('table_date'), 110, 'center', 0),
             )
 
-            header_frame = tk.Frame(table_frame, bg='#eef3f8')
+            header_frame = tk.Frame(table_frame, bg=THEME_COLORS['accent_soft'])
             header_frame.pack(fill='x')
 
             for column_index, (title, min_width, anchor, _wraplength) in enumerate(column_specs):
@@ -2676,7 +3313,7 @@ class XRFReportApp:
                 tk.Label(
                     header_frame,
                     text=title,
-                    bg='#eef3f8',
+                    bg=THEME_COLORS['accent_soft'],
                     fg=THEME_COLORS['body_text'],
                     font=('Malgun Gothic', 10, 'bold'),
                     padx=6,
@@ -2685,7 +3322,7 @@ class XRFReportApp:
                     bd=0,
                 ).grid(row=0, column=column_index, sticky='nsew')
 
-            tk.Frame(table_frame, bg='#dfe5ec', height=1).pack(fill='x')
+            tk.Frame(table_frame, bg=THEME_COLORS['muted_border'], height=1).pack(fill='x')
 
             body_frame = tk.Frame(table_frame, bg=THEME_COLORS['surface'])
             body_frame.pack(fill='both', expand=True)
@@ -2720,8 +3357,8 @@ class XRFReportApp:
             canvas.bind('<Configure>', sync_rows_width)
             canvas.bind('<MouseWheel>', on_mousewheel)
 
-            for row_index, row_values in enumerate(previous_rows):
-                row_bg = '#ffffff' if row_index % 2 == 0 else '#f8fafc'
+            for row_index, row_values in enumerate(history_rows):
+                row_bg = THEME_COLORS['surface'] if row_index % 2 == 0 else THEME_COLORS['surface_alt']
                 for column_index, (_title, min_width, anchor, wraplength) in enumerate(column_specs):
                     rows_frame.grid_columnconfigure(column_index, minsize=min_width, weight=1 if column_index == 1 else 0)
                     tk.Label(
@@ -2738,20 +3375,20 @@ class XRFReportApp:
                         bd=0,
                     ).grid(row=row_index * 2, column=column_index, sticky='nsew')
 
-                if row_index < len(previous_rows) - 1:
-                    tk.Frame(rows_frame, bg='#edf1f5', height=1).grid(
+                if row_index < len(history_rows) - 1:
+                    tk.Frame(rows_frame, bg=THEME_COLORS['muted_border'], height=1).grid(
                         row=row_index * 2 + 1,
                         column=0,
                         columnspan=len(column_specs),
                         sticky='ew',
                     )
 
-        button_frame = tk.Frame(card, bg=THEME_COLORS['surface'], pady=(12, 0))
+        button_frame = tk.Frame(card, bg=THEME_COLORS['surface'], pady=12)
         button_frame.pack(fill='x')
 
         tk.Button(
             button_frame,
-            text='닫기',
+            text=self.tr('button_close'),
             width=10,
             command=close_version_history_window,
             bg=THEME_COLORS['button_bg'],
@@ -2762,7 +3399,7 @@ class XRFReportApp:
             highlightbackground=THEME_COLORS['panel_border'],
             highlightthickness=1,
             activebackground=THEME_COLORS['button_hover'],
-            activeforeground='#202020',
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='right')
 
         window.update_idletasks()
@@ -2785,8 +3422,9 @@ class XRFReportApp:
 
         window = tk.Toplevel(self.root)
         self.about_window = window
-        window.title('버전 정보')
-        window.configure(bg='#eef1f4')
+        self.apply_window_icon(window)
+        window.title(self.tr('about_title'))
+        window.configure(bg=THEME_COLORS['app_bg'])
         window.resizable(False, False)
         window.transient(self.root)
 
@@ -2801,14 +3439,14 @@ class XRFReportApp:
 
         window.protocol('WM_DELETE_WINDOW', close_about_window)
 
-        outer = tk.Frame(window, bg='#eef1f4', padx=14, pady=14)
+        outer = tk.Frame(window, bg=THEME_COLORS['app_bg'], padx=14, pady=14)
         outer.pack(fill='both', expand=True)
 
         card = tk.Frame(
             outer,
             bg=THEME_COLORS['surface'],
             bd=0,
-            highlightbackground='#d4dae2',
+            highlightbackground=THEME_COLORS['panel_border'],
             highlightthickness=1,
         )
         card.pack(fill='both', expand=True)
@@ -2818,7 +3456,7 @@ class XRFReportApp:
 
         tk.Label(
             top_section,
-            text='버전 정보',
+            text=self.tr('about_title'),
             bg=THEME_COLORS['surface'],
             fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 18, 'bold'),
@@ -2826,13 +3464,13 @@ class XRFReportApp:
 
         tk.Label(
             top_section,
-            text='현재 버전, 프로그램 정보, 업데이트 이력을 한 번에 확인할 수 있습니다.',
+            text=self.tr('about_desc'),
             bg=THEME_COLORS['surface'],
-            fg='#5f6b7a',
+            fg=THEME_COLORS['muted_text'],
             font=('Malgun Gothic', 10),
         ).pack(anchor='w', pady=(4, 0))
 
-        summary_shell = tk.Frame(card, bg='#d4dae2', padx=1, pady=1)
+        summary_shell = tk.Frame(card, bg=THEME_COLORS['panel_border'], padx=1, pady=1)
         summary_shell.pack(fill='x', padx=16, pady=(12, 0))
 
         summary_frame = tk.Frame(summary_shell, bg=THEME_COLORS['surface'], padx=16, pady=14)
@@ -2846,7 +3484,7 @@ class XRFReportApp:
 
         tk.Label(
             version_text_frame,
-            text='현재 버전',
+            text=self.tr('about_current_version'),
             bg=THEME_COLORS['surface'],
             fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 11, 'bold'),
@@ -2854,15 +3492,15 @@ class XRFReportApp:
 
         tk.Label(
             version_text_frame,
-            text='설치된 프로그램의 최신 버전 정보입니다.',
+            text=self.tr('about_current_desc'),
             bg=THEME_COLORS['surface'],
-            fg='#5f6b7a',
+            fg=THEME_COLORS['muted_text'],
             font=('Malgun Gothic', 9),
         ).pack(anchor='w', pady=(2, 0))
 
         tk.Label(
             version_text_frame,
-            text='우측 버전을 누르면 이전 버전 이력을 볼 수 있습니다.',
+            text=self.tr('about_history_hint'),
             bg=THEME_COLORS['surface'],
             fg=THEME_COLORS['accent'],
             font=('Malgun Gothic', 9, 'bold'),
@@ -2882,7 +3520,7 @@ class XRFReportApp:
             bd=0,
             highlightthickness=0,
             activebackground=THEME_COLORS['accent_hover'],
-            activeforeground='white',
+            activeforeground='#f8fafc',
         ).pack(side='right', anchor='ne')
 
         info_grid = tk.Frame(summary_frame, bg=THEME_COLORS['surface'])
@@ -2890,10 +3528,10 @@ class XRFReportApp:
         info_grid.grid_columnconfigure(1, weight=1)
 
         program_rows = (
-            ('프로그램명', 'XRF Auto Input System'),
-            ('제작자', '우도권'),
-            ('사용자', '품질팀'),
-            ('사용 목적', 'XRF자료 자동업데이트'),
+            (self.tr('about_program_name_label'), self.tr('about_program_name_value')),
+            (self.tr('about_author_label'), self.tr('about_author_value')),
+            (self.tr('about_user_label'), self.tr('about_user_value')),
+            (self.tr('about_purpose_label'), self.tr('about_purpose_value')),
         )
 
         for row_index, (label_text, value_text) in enumerate(program_rows):
@@ -2917,9 +3555,9 @@ class XRFReportApp:
 
         tk.Label(
             summary_frame,
-            text='이 프로그램은 풍원공업(주) 전용 프로그램이며 당사 직원 외 무단배포, 무단사용 등을 금합니다.',
+            text=self.tr('about_notice'),
             bg=THEME_COLORS['surface'],
-            fg='#344150',
+            fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 10),
             justify='left',
             wraplength=470,
@@ -2935,14 +3573,14 @@ class XRFReportApp:
                 highlightthickness=0,
             ).pack(anchor='center', pady=(14, 0))
 
-        tk.Frame(card, bg='#e6e9ef', height=1).pack(fill='x', padx=16, pady=(14, 0))
+        tk.Frame(card, bg=THEME_COLORS['muted_border'], height=1).pack(fill='x', padx=16, pady=(14, 0))
 
-        section_frame = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=(12, 8))
+        section_frame = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=12)
         section_frame.pack(fill='x')
 
         tk.Label(
             section_frame,
-            text='버전 업데이트 이력',
+            text=self.tr('about_history_heading'),
             bg=THEME_COLORS['surface'],
             fg=THEME_COLORS['body_text'],
             font=('Malgun Gothic', 13, 'bold'),
@@ -2950,25 +3588,25 @@ class XRFReportApp:
 
         tk.Label(
             section_frame,
-            text='최근 버전부터 순서대로 주요 변경 내용을 볼 수 있습니다.',
+            text=self.tr('about_history_desc'),
             bg=THEME_COLORS['surface'],
-            fg='#5f6b7a',
+            fg=THEME_COLORS['muted_text'],
             font=('Malgun Gothic', 9),
         ).pack(anchor='w', pady=(3, 0))
 
-        table_shell = tk.Frame(card, bg='#d4dae2', padx=1, pady=1)
+        table_shell = tk.Frame(card, bg=THEME_COLORS['panel_border'], padx=1, pady=1)
         table_shell.pack(fill='both', expand=True, padx=16, pady=(0, 10))
 
         table_frame = tk.Frame(table_shell, bg=THEME_COLORS['surface'])
         table_frame.pack(fill='both', expand=True)
 
         column_specs = (
-            ('버전', 86, 'center', 0),
-            ('주요 기능', 220, 'w', 210),
-            ('날짜', 110, 'center', 0),
+            (self.tr('table_version'), 86, 'center', 0),
+            (self.tr('table_feature'), 220, 'w', 210),
+            (self.tr('table_date'), 110, 'center', 0),
         )
 
-        header_frame = tk.Frame(table_frame, bg='#eef3f8')
+        header_frame = tk.Frame(table_frame, bg=THEME_COLORS['accent_soft'])
         header_frame.pack(fill='x')
 
         for column_index, (title, min_width, anchor, _wraplength) in enumerate(column_specs):
@@ -2976,7 +3614,7 @@ class XRFReportApp:
             tk.Label(
                 header_frame,
                 text=title,
-                bg='#eef3f8',
+                bg=THEME_COLORS['accent_soft'],
                 fg=THEME_COLORS['body_text'],
                 font=('Malgun Gothic', 10, 'bold'),
                 padx=6,
@@ -2985,7 +3623,7 @@ class XRFReportApp:
                 bd=0,
             ).grid(row=0, column=column_index, sticky='nsew')
 
-        tk.Frame(table_frame, bg='#dfe5ec', height=1).pack(fill='x')
+        tk.Frame(table_frame, bg=THEME_COLORS['muted_border'], height=1).pack(fill='x')
 
         body_frame = tk.Frame(table_frame, bg=THEME_COLORS['surface'])
         body_frame.pack(fill='both', expand=True)
@@ -3025,7 +3663,7 @@ class XRFReportApp:
             display_rows.append(('', '', ''))
 
         for row_index, row_values in enumerate(display_rows):
-            row_bg = '#eef6ff' if row_index == 0 and row_values[0] else ('#ffffff' if row_index % 2 == 0 else '#f8fafc')
+            row_bg = THEME_COLORS['accent_soft'] if row_index == 0 and row_values[0] else (THEME_COLORS['surface'] if row_index % 2 == 0 else THEME_COLORS['surface_alt'])
             for column_index, (_title, min_width, anchor, wraplength) in enumerate(column_specs):
                 rows_frame.grid_columnconfigure(column_index, minsize=min_width, weight=1 if column_index == 1 else 0)
                 text = row_values[column_index]
@@ -3044,7 +3682,7 @@ class XRFReportApp:
                 ).grid(row=row_index * 2, column=column_index, sticky='nsew')
 
             if row_index < len(display_rows) - 1:
-                separator = '#dfe5ec' if row_values[0] else '#edf1f5'
+                separator = THEME_COLORS['muted_border'] if row_values[0] else THEME_COLORS['muted_border']
                 tk.Frame(rows_frame, bg=separator, height=1).grid(
                     row=row_index * 2 + 1,
                     column=0,
@@ -3052,12 +3690,12 @@ class XRFReportApp:
                     sticky='ew',
                 )
 
-        button_frame = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=(0, 14))
+        button_frame = tk.Frame(card, bg=THEME_COLORS['surface'], padx=16, pady=14)
         button_frame.pack(fill='x')
 
         tk.Button(
             button_frame,
-            text='닫기',
+            text=self.tr('button_close'),
             width=10,
             command=close_about_window,
             bg=THEME_COLORS['button_bg'],
@@ -3066,7 +3704,7 @@ class XRFReportApp:
             relief='solid',
             bd=1,
             activebackground=THEME_COLORS['button_hover'],
-            activeforeground='#202020',
+            activeforeground=THEME_COLORS['body_text'],
         ).pack(side='right')
 
         window.update_idletasks()
@@ -3096,7 +3734,7 @@ class XRFReportApp:
             top_bar,
             text=f'Ver {APP_VERSION}',
             bg=THEME_COLORS['accent'],
-            fg='white',
+            fg='#f8fafc',
             font=('Malgun Gothic', 11, 'bold'),
             padx=12,
             pady=5,
@@ -3113,8 +3751,44 @@ class XRFReportApp:
                 highlightthickness=0,
             ).pack(side='left', anchor='w', padx=(14, 0))
 
+        self.update_notice_button = tk.Button(
+            top_bar,
+            textvariable=self.update_notice_var,
+            command=self.open_available_update,
+            bg=THEME_COLORS['update_bg'],
+            fg=THEME_COLORS['update_fg'],
+            font=('Malgun Gothic', 10, 'bold'),
+            relief='flat',
+            bd=0,
+            padx=14,
+            pady=6,
+            activebackground=THEME_COLORS['update_hover'],
+            activeforeground=THEME_COLORS['update_fg'],
+            cursor='hand2',
+        )
+
+        self.main_shell = tk.Frame(self.root, bg=THEME_COLORS['app_bg'])
+        self.main_shell.pack(fill='both', expand=True)
+        self.main_canvas = tk.Canvas(
+            self.main_shell,
+            bg=THEME_COLORS['app_bg'],
+            highlightthickness=0,
+            bd=0,
+        )
+        self.main_scrollbar = tk.Scrollbar(self.main_shell, orient='vertical', command=self.main_canvas.yview)
+        self.main_canvas.configure(yscrollcommand=self.main_scrollbar.set)
+        self.main_content = tk.Frame(self.main_canvas, bg=THEME_COLORS['app_bg'])
+        self.main_window_id = self.main_canvas.create_window((0, 0), window=self.main_content, anchor='nw')
+        self.main_canvas.pack(side='left', fill='both', expand=True)
+        self.main_scrollbar.pack(side='right', fill='y')
+        self.main_content.bind('<Configure>', self._on_main_content_configure)
+        self.main_canvas.bind('<Configure>', self._on_main_canvas_configure)
+        self.root.bind_all('<MouseWheel>', self._on_main_mousewheel, add='+')
+        self.root.bind_all('<Button-4>', self._on_main_mousewheel_linux, add='+')
+        self.root.bind_all('<Button-5>', self._on_main_mousewheel_linux, add='+')
+
         self.title_label = tk.Label(
-            self.root,
+            self.main_content,
             text='XRF Report Auto Input System',
             bg=THEME_COLORS['surface'],
             fg=THEME_COLORS['heading'],
@@ -3128,11 +3802,13 @@ class XRFReportApp:
         )
         self.title_label.pack(pady=(14, 12))
 
-        body = tk.Frame(self.root, bg=THEME_COLORS['app_bg'])
-        body.pack(fill='both', expand=True, padx=18, pady=(0, 18))
+        self.body = tk.Frame(self.main_content, bg=THEME_COLORS['app_bg'])
+        self.body.pack(fill='both', expand=True, padx=18, pady=(0, 18))
+        body = self.body
 
-        left_panel = tk.Frame(body, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, padx=14, pady=14)
-        left_panel.pack(side='left', fill='y', padx=(0, 18))
+        self.left_panel = tk.Frame(body, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, padx=14, pady=14)
+        self.left_panel.pack(side='left', fill='y', padx=(0, 18))
+        left_panel = self.left_panel
 
         tk.Label(
             left_panel,
@@ -3211,8 +3887,9 @@ class XRFReportApp:
             activeforeground=THEME_COLORS['body_text'],
         ).pack(side='left', fill='x', expand=True, padx=(10, 0))
 
-        right_panel = tk.Frame(body, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, padx=14, pady=14)
-        right_panel.pack(side='left', fill='both', expand=True)
+        self.right_panel = tk.Frame(body, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, padx=14, pady=14)
+        self.right_panel.pack(side='left', fill='both', expand=True)
+        right_panel = self.right_panel
 
         control_panel = tk.Frame(right_panel, bg=THEME_COLORS['surface'])
         control_panel.pack(fill='x')
@@ -3349,14 +4026,14 @@ class XRFReportApp:
             text='시트 삽입 실행',
             command=self.run_insert,
             bg=THEME_COLORS['accent'],
-            fg='white',
+            fg='#f8fafc',
             font=('맑은 고딕', 14, 'bold'),
             relief='flat',
             bd=0,
             padx=18,
             pady=14,
             activebackground=THEME_COLORS['accent_hover'],
-            activeforeground='white',
+            activeforeground='#f8fafc',
         ).pack(side='left', fill='x', expand=True)
 
         tk.Button(
@@ -3364,14 +4041,14 @@ class XRFReportApp:
             text='유해물질표 업데이트',
             command=self.run_update_hazardous_table,
             bg=THEME_COLORS['accent'],
-            fg='white',
+            fg='#f8fafc',
             font=('맑은 고딕', 14, 'bold'),
             relief='flat',
             bd=0,
             padx=18,
             pady=14,
             activebackground=THEME_COLORS['accent_hover'],
-            activeforeground='white',
+            activeforeground='#f8fafc',
         ).pack(side='left', fill='x', expand=True, padx=(10, 0))
 
         self.result_panel = tk.Frame(self.middle_panel, bg=THEME_COLORS['surface'], highlightbackground=THEME_COLORS['panel_border'], highlightthickness=1, bd=0)
@@ -3399,8 +4076,9 @@ class XRFReportApp:
             pady=16,
         )
         self.status_label.pack(fill='both', expand=True)
+        self.register_localized_static_widgets()
 
-    def set_status(self, message, result_text='READY', result_color='#0a72c4'):
+    def set_status(self, message, result_text='READY', result_color=THEME_COLORS['accent']):
         self.status_var.set(message)
         self.result_var.set(result_text)
         self.root.update_idletasks()
@@ -3503,7 +4181,7 @@ class XRFReportApp:
     def clear_source_files(self):
         self.source_paths = []
         self.refresh_source_list()
-        self.set_status('엑셀 목록을 비웠습니다.', 'READY', '#0a72c4')
+        self.set_status('엑셀 목록을 비웠습니다.', 'READY', THEME_COLORS['accent'])
 
     def load_source_files(self):
         selected_paths = filedialog.askopenfilenames(
@@ -3541,7 +4219,7 @@ class XRFReportApp:
         message = f'엑셀 파일 {len(self.source_paths)}개를 불러왔습니다.'
         if skipped:
             message += f' 제외된 파일 {skipped}개가 있습니다.'
-        self.set_status(message, 'READY', '#0a72c4')
+        self.set_status(message, 'READY', THEME_COLORS['accent'])
     def set_target_workbooks_loading_state(self, paths):
         self.target_workbook_paths = list(paths)
         self.target_workbook_path = self.target_workbook_paths[0] if self.target_workbook_paths else ''
@@ -3594,7 +4272,7 @@ class XRFReportApp:
             message += f' 공통 시트 {len(common_sheet_names)}개를 확인했습니다.'
         if failures:
             message += f' 읽기 실패 {len(failures)}개가 있습니다.'
-        self.set_status(message, 'READY', '#0a72c4')
+        self.set_status(message, 'READY', THEME_COLORS['accent'])
 
     def _inspect_target_workbooks_async(self, request_id, selected_paths):
         try:
@@ -3662,7 +4340,7 @@ class XRFReportApp:
         self.set_status(
             f'기존 저장 파일 {len(normalized_selected_paths)}개를 바로 불러왔습니다. 시트 정보를 확인 중입니다.',
             'READY',
-            '#0a72c4',
+            THEME_COLORS['accent'],
         )
         threading.Thread(
             target=self._inspect_target_workbooks_async,
@@ -3699,7 +4377,7 @@ class XRFReportApp:
         if self.target_sheet_names:
             selected_names = self.target_sheet_list.get_selected_values() if self.target_sheet_list.has_items() else []
             self.refresh_target_sheet_items(selected_names=selected_names)
-        self.set_status('업체 TOTAL 파일을 불러왔습니다.', 'READY', '#0a72c4')
+        self.set_status('업체 TOTAL 파일을 불러왔습니다.', 'READY', THEME_COLORS['accent'])
 
     def _inspect_total_workbook_async(self, request_id, selected_path):
         try:
@@ -3740,7 +4418,7 @@ class XRFReportApp:
         if self.target_sheet_names:
             selected_names = self.target_sheet_list.get_selected_values() if self.target_sheet_list.has_items() else []
             self.refresh_target_sheet_items(selected_names=selected_names)
-        self.set_status('업체 TOTAL 파일을 바로 불러왔습니다. 데이터 시트를 확인 중입니다.', 'READY', '#0a72c4')
+        self.set_status('업체 TOTAL 파일을 바로 불러왔습니다. 데이터 시트를 확인 중입니다.', 'READY', THEME_COLORS['accent'])
         threading.Thread(
             target=self._inspect_total_workbook_async,
             args=(request_id, abs_path),
@@ -3913,7 +4591,7 @@ class XRFReportApp:
         if failure_items:
             self.set_status(f'시트 삽입이 완료되었습니다. 성공 {len(success_items)}개 / 실패 {len(failure_items)}개', 'NG', '#c0392b')
         else:
-            self.set_status(f'시트 삽입이 완료되었습니다. 성공 {len(success_items)}개', 'OK', '#0a72c4')
+            self.set_status(f'시트 삽입이 완료되었습니다. 성공 {len(success_items)}개', 'OK', THEME_COLORS['accent'])
     def run_update_hazardous_table(self):
         if not self.target_workbook_paths:
             messagebox.showwarning('확인 필요', '먼저 기존 저장 파일을 불러오세요.')
@@ -3946,10 +4624,13 @@ class XRFReportApp:
             self.set_status(str(exc), 'NG', '#c0392b')
             return
 
+        path_replacements = {}
         for item in update_results:
             target_path = item['path']
+            original_path = item.get('original_path', target_path)
             stats = item['stats']
             success_items.append((target_path, stats))
+            path_replacements[normalized_path(original_path)] = target_path
             total_matched += stats['matched_rows']
             total_unmatched += stats['unmatched_rows']
             optimization_result = self.apply_optimization_if_enabled(target_path)
@@ -3965,6 +4646,11 @@ class XRFReportApp:
             self.set_status(error_message, 'NG', '#c0392b')
             return
 
+        if path_replacements:
+            self.target_workbook_paths = [path_replacements.get(normalized_path(path), path) for path in self.target_workbook_paths]
+            self.target_workbook_path = self.target_workbook_paths[0] if self.target_workbook_paths else ''
+            self.refresh_target_sheet_list()
+
         message_lines = [
             f'대상 파일: {len(self.target_workbook_paths)}개',
             f'성공: {len(success_items)}개',
@@ -3973,10 +4659,16 @@ class XRFReportApp:
             f'총 미매칭 행: {total_unmatched}',
         ]
         if len(success_items) == 1:
-            stats = success_items[0][1]
+            saved_path, stats = success_items[0]
+            message_lines.insert(0, f"저장 파일: {os.path.basename(saved_path)}")
             message_lines.insert(0, f"TOTAL 시트: {stats['source_sheet_name']}")
             message_lines.insert(0, f"대상 시트: {stats['target_sheet_name']}")
             message_lines.append(f"사용되지 않은 TOTAL 행: {stats['unused_source_rows']}")
+        else:
+            preview_saved = ', '.join(os.path.basename(path) for path, _stats in success_items[:3])
+            if len(success_items) > 3:
+                preview_saved += f' 외 {len(success_items) - 3}개'
+            message_lines.append(f'저장 파일: {preview_saved}')
         if optimization_results:
             applied_count = sum(1 for result in optimization_results if result.get('applied'))
             message_lines.append(f'파일 최적화 적용: {applied_count}개')
@@ -3990,7 +4682,7 @@ class XRFReportApp:
         if failure_items:
             self.set_status(f'유해물질분석표 업데이트가 완료되었습니다. 성공 {len(success_items)}개 / 실패 {len(failure_items)}개', 'NG', '#c0392b')
         else:
-            self.set_status(f'유해물질분석표 업데이트가 완료되었습니다. 성공 {len(success_items)}개', 'OK', '#0a72c4')
+            self.set_status(f'유해물질분석표 업데이트가 완료되었습니다. 성공 {len(success_items)}개', 'OK', THEME_COLORS['accent'])
 
 
 def main():
