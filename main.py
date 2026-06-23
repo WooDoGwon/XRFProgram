@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 import ctypes
 import ctypes.wintypes
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from copy import copy, deepcopy
 import tkinter as tk
@@ -31,11 +31,12 @@ EXCEL_FILE_TYPES = [
 ELEMENT_SYMBOLS = ('Cd', 'Pb', 'Hg', 'Br', 'Cr')
 ELEMENT_KEYS = {symbol: symbol.upper() for symbol in ELEMENT_SYMBOLS}
 HEADER_SCAN_LIMIT = 40
-APP_VERSION = '1.1.8'
+APP_VERSION = '1.1.10'
 OPTIMIZE_COMPRESSLEVEL = 4
 GITHUB_REPO_OWNER = 'WooDoGwon'
-GITHUB_REPO_NAME = 'Program'
+GITHUB_REPO_NAME = 'XRFProgram'
 GITHUB_RELEASE_API_URL = f'https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest'
+GITHUB_RELEASES_API_URL = f'https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases'
 GITHUB_RELEASE_PAGE_URL = f'https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases'
 UPDATE_ASSET_NAME_PREFIX = 'XRF_Report_Auto_Input_Setup_v'
 UPDATE_DOWNLOAD_DIR_NAME = 'updates'
@@ -50,6 +51,8 @@ TOP_BAR_LOGO_MAX_WIDTH = 170
 ABOUT_LOGO_HEIGHT = 58
 ABOUT_LOGO_MAX_WIDTH = 210
 VERSION_HISTORY = [
+    ('1.1.10', '자동업데이트 저장소/프리릴리즈 조회 보완', '2026-06-23'),
+    ('1.1.9', '유해물질표 측정일자 기준 파일명 저장 적용', '2026-06-19'),
     ('1.1.8', '유해물질표 자동 업데이트 날짜 파일명 저장 추가', '2026-06-19'),
     ('1.1.7', 'GitHub 업데이트 인증서/다운로드 오류 보완', '2026-04-27'),
     ('1.1.6', '언어 설정(한국어/영어/베트남어) 기능 추가', '2026-04-23'),
@@ -643,7 +646,7 @@ def build_dated_update_output_path(path, date_value=None):
     if not ext:
         ext = '.xlsx'
     base_stem = re.sub(r'_\d{6}$', '', stem)
-    date_code = (date_value or datetime.now()).strftime('%y%m%d')
+    date_code = resolve_output_date_code(date_value) or datetime.now().strftime('%y%m%d')
     return os.path.join(directory, f'{base_stem}_{date_code}{ext}')
 
 
@@ -668,6 +671,51 @@ def save_workbook_with_update_date(workbook, original_path, date_value=None):
     workbook.SaveAs(os.path.abspath(target_path), **save_kwargs)
     return target_path
 
+
+
+def resolve_output_date_code(value):
+    if value in (None, ''):
+        return ''
+
+    if isinstance(value, datetime):
+        return value.strftime('%y%m%d')
+
+    if isinstance(value, (int, float)):
+        try:
+            excel_date = datetime(1899, 12, 30) + timedelta(days=float(value))
+            if 1900 <= excel_date.year <= 9999:
+                return excel_date.strftime('%y%m%d')
+        except Exception:
+            pass
+
+    text = str(value).strip()
+    if not text:
+        return ''
+
+    year_month_day_match = re.search(r'(\d{4})\D+(\d{1,2})\D+(\d{1,2})', text)
+    if year_month_day_match:
+        try:
+            parsed_date = datetime(
+                int(year_month_day_match.group(1)),
+                int(year_month_day_match.group(2)),
+                int(year_month_day_match.group(3)),
+            )
+            return parsed_date.strftime('%y%m%d')
+        except ValueError:
+            pass
+
+    digits = ''.join(re.findall(r'\d+', text))
+    if len(digits) >= 8:
+        candidate = digits[:8]
+        try:
+            return datetime.strptime(candidate, '%Y%m%d').strftime('%y%m%d')
+        except ValueError:
+            return candidate[2:]
+
+    if len(digits) == 6:
+        return digits
+
+    return ''
 
 def configure_excel_app(excel):
     excel.Visible = False
@@ -809,26 +857,62 @@ def run_powershell_script(script, timeout_seconds):
     return process.stdout
 
 
-def fetch_latest_release_info_via_powershell():
+def fetch_github_json_via_powershell(url, timeout_seconds, include_accept=False):
+    headers = [f"'User-Agent' = {quote_powershell_string(UPDATER_USER_AGENT)}"]
+    if include_accept:
+        headers.append(f"'Accept' = {quote_powershell_string('application/vnd.github+json')}")
+
     script = "\n".join([
         "$ProgressPreference = 'SilentlyContinue'",
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8",
         "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-        f"$headers = @{{ 'Accept' = {quote_powershell_string('application/vnd.github+json')}; 'User-Agent' = {quote_powershell_string(UPDATER_USER_AGENT)} }}",
-        f"$response = Invoke-WebRequest -Uri {quote_powershell_string(GITHUB_RELEASE_API_URL)} -Headers $headers -UseBasicParsing -TimeoutSec {int(UPDATE_CHECK_TIMEOUT_SECONDS)}",
+        f"$headers = @{{ {'; '.join(headers)} }}",
+        f"$response = Invoke-WebRequest -Uri {quote_powershell_string(url)} -Headers $headers -UseBasicParsing -TimeoutSec {int(timeout_seconds)}",
         "[Console]::Out.Write($response.Content)",
     ])
-    return json.loads(run_powershell_script(script, UPDATE_CHECK_TIMEOUT_SECONDS))
+    return json.loads(run_powershell_script(script, timeout_seconds))
 
 
-def download_update_installer_via_powershell(download_url, temp_path):
-    script = "\n".join([
-        "$ProgressPreference = 'SilentlyContinue'",
-        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-        f"$headers = @{{ 'User-Agent' = {quote_powershell_string(UPDATER_USER_AGENT)} }}",
-        f"Invoke-WebRequest -Uri {quote_powershell_string(download_url)} -Headers $headers -UseBasicParsing -TimeoutSec {int(UPDATE_DOWNLOAD_TIMEOUT_SECONDS)} -OutFile {quote_powershell_string(temp_path)}",
-    ])
-    run_powershell_script(script, UPDATE_DOWNLOAD_TIMEOUT_SECONDS)
+
+def fetch_github_json(url, timeout_seconds, include_accept=False):
+    request = urllib.request.Request(
+        url,
+        headers=build_updater_headers(include_accept=include_accept),
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as primary_exc:
+        try:
+            return fetch_github_json_via_powershell(url, timeout_seconds, include_accept=include_accept)
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                '\n'.join([
+                    f'\uc8fc\uc18c: {url}',
+                    f'Python \uc5f0\uacb0 \uc624\ub958: {primary_exc}',
+                    f'PowerShell \uc5f0\uacb0 \uc624\ub958: {fallback_exc}',
+                ])
+            ) from fallback_exc
+
+
+
+def choose_latest_release_payload(releases):
+    candidates = []
+    for release in releases or []:
+        if not isinstance(release, dict) or release.get('draft'):
+            continue
+        version = normalize_release_version(release.get('tag_name') or release.get('name') or '')
+        if not version:
+            continue
+        has_installer_asset = 1 if choose_update_asset(release.get('assets') or []) else 0
+        candidates.append((parse_version_parts(version), has_installer_asset, release))
+
+    if not candidates:
+        return {}
+
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
 
 
 def parse_release_info_payload(data):
@@ -845,26 +929,50 @@ def parse_release_info_payload(data):
     }
 
 
+
 def fetch_latest_release_info():
-    request = urllib.request.Request(
-        GITHUB_RELEASE_API_URL,
-        headers=build_updater_headers(include_accept=True),
-    )
+    latest_errors = []
+
     try:
-        with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read().decode('utf-8'))
-    except Exception as primary_exc:
-        try:
-            data = fetch_latest_release_info_via_powershell()
-        except Exception as fallback_exc:
-            raise RuntimeError(
-                '\n'.join([
-                    'GitHub 업데이트 정보를 가져오지 못했습니다.',
-                    f'Python 연결 오류: {primary_exc}',
-                    f'PowerShell 연결 오류: {fallback_exc}',
-                ])
-            ) from fallback_exc
-    return parse_release_info_payload(data)
+        data = fetch_github_json(
+            GITHUB_RELEASE_API_URL,
+            UPDATE_CHECK_TIMEOUT_SECONDS,
+            include_accept=True,
+        )
+        release_info = parse_release_info_payload(data)
+        if release_info.get('version'):
+            return release_info
+        latest_errors.append('GitHub latest release 응답에서 버전 정보를 찾지 못했습니다.')
+    except Exception as exc:
+        latest_errors.append(f'GitHub latest release 조회 실패: {exc}')
+
+    try:
+        releases = fetch_github_json(
+            GITHUB_RELEASES_API_URL,
+            UPDATE_CHECK_TIMEOUT_SECONDS,
+            include_accept=True,
+        )
+    except Exception as exc:
+        latest_errors.append(f'GitHub release 목록 조회 실패: {exc}')
+        raise RuntimeError(
+            '\n'.join(['GitHub 업데이트 정보를 가져오지 못했습니다.', ''] + latest_errors)
+        ) from exc
+
+    release_payload = choose_latest_release_payload(releases)
+    if not release_payload:
+        latest_errors.append('GitHub release 목록에서 사용할 수 있는 버전을 찾지 못했습니다.')
+        raise RuntimeError(
+            '\n'.join(['GitHub 업데이트 정보를 가져오지 못했습니다.', ''] + latest_errors)
+        )
+
+    release_info = parse_release_info_payload(release_payload)
+    if not release_info.get('version'):
+        latest_errors.append('GitHub release 목록에서 선택한 항목의 버전 정보를 읽지 못했습니다.')
+        raise RuntimeError(
+            '\n'.join(['GitHub 업데이트 정보를 가져오지 못했습니다.', ''] + latest_errors)
+        )
+
+    return release_info
 
 
 def download_update_installer(download_url, asset_name):
@@ -1887,6 +1995,32 @@ def find_last_target_data_row(sheet, layout):
 
 
 
+
+def find_target_measurement_date_value(sheet, layout, last_row=None):
+    date_column = layout['columns'].get('date')
+    if not date_column:
+        return None
+
+    if last_row is None:
+        last_row = find_last_target_data_row(sheet, layout)
+
+    for row_index in range(layout['data_start_row'], last_row + 1):
+        if not row_has_identity_data(sheet, row_index, layout):
+            continue
+        date_value = excel_cell_display_or_value(sheet, row_index, date_column)
+        if date_value not in (None, ''):
+            return date_value
+
+    return None
+
+
+def find_first_source_record_date_value(records):
+    for record in records:
+        date_value = record.get('date')
+        if date_value not in (None, ''):
+            return date_value
+    return None
+
 def apply_total_records_to_target_sheet(target_sheet, target_layout, source_records, prefer_product=False):
     record_maps = build_source_record_maps(source_records)
     material_map = record_maps['material']
@@ -2038,7 +2172,10 @@ def update_hazardous_tables_from_total(total_path, target_paths):
                     source_records,
                     prefer_product=is_styler_xrf_path(target_path),
                 )
-                saved_path = save_workbook_with_update_date(target_workbook, target_path)
+                output_date_value = find_target_measurement_date_value(target_layout['sheet'], target_layout)
+                if output_date_value in (None, ''):
+                    output_date_value = find_first_source_record_date_value(source_records)
+                saved_path = save_workbook_with_update_date(target_workbook, target_path, date_value=output_date_value)
                 set_cached_target_inspection(
                     saved_path,
                     [sheet.Name for sheet in target_workbook.Worksheets],
@@ -2046,6 +2183,7 @@ def update_hazardous_tables_from_total(total_path, target_paths):
                 )
                 save_changes = False
                 stats['saved_path'] = saved_path
+                stats['output_date_value'] = output_date_value
                 stats['target_sheet_name'] = target_layout['sheet_name']
                 stats['source_sheet_name'] = total_layout['sheet_name']
                 results.append({'path': saved_path, 'original_path': target_path, 'stats': stats})

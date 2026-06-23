@@ -1,8 +1,8 @@
 ﻿#define MyAppName "XRF Report Auto Input"
-#define MyAppVersion "1.1.8"
+#define MyAppVersion "1.1.10"
 #define MyAppPublisher "XRF Tools"
-#define MyAppExeName "XRF_Report_Auto_Input_v1.1.8.exe"
-#define MySetupBaseName "XRF_Report_Auto_Input_Setup_v1.1.8"
+#define MyAppExeName "XRF_Report_Auto_Input_v1.1.10.exe"
+#define MySetupBaseName "XRF_Report_Auto_Input_Setup_v1.1.10"
 
 [Setup]
 AppId={{5D2CBE83-2E1A-4B36-A2FD-7AD6F8B9E1F1}
@@ -16,7 +16,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-OutputDir=C:\Users\USER\Desktop\program\installer
+OutputDir=C:\Users\USER\Desktop\Program\installer
 OutputBaseFilename={#MySetupBaseName}
 Compression=lzma
 SolidCompression=yes
@@ -24,7 +24,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
-SetupIconFile=C:\Users\USER\Desktop\program\AppIcon.ico
+SetupIconFile=C:\Users\USER\Desktop\Program\AppIcon.ico
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
@@ -33,7 +33,7 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "desktopicon"; Description: "바탕 화면에 바로가기 만들기"; GroupDescription: "추가 작업:"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\USER\Desktop\program\dist_latest\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\USER\Desktop\Program\dist_latest\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
